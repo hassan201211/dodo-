@@ -42,11 +42,17 @@ jobs:
           import re
           from pathlib import Path
 
-          src_files = [
+          c_files = [
               p for p in Path("Source").rglob("*")
-              if p.suffix in (".c", ".h", ".m", ".mm", ".cpp", ".inc")
+              if p.suffix in (".c", ".m", ".mm", ".cpp")
           ]
-          src_text = "\n".join(p.read_text(errors="ignore") for p in src_files)
+          h_files = [
+              p for p in Path("Source").rglob("*")
+              if p.suffix in (".h", ".inc")
+          ]
+          c_text = "\n".join(p.read_text(errors="ignore") for p in c_files)
+          h_text = "\n".join(p.read_text(errors="ignore") for p in h_files)
+          src_text = h_text + "\n" + c_text
 
           # 1. Stub any missing local headers (e.g. engine-functions.h)
           existing = {p.name for p in Path(".").rglob("*.h")} | {p.name for p in Path(".").rglob("*.inc")}
@@ -93,19 +99,9 @@ jobs:
                   struct_lines.append(f"  u32 {f};")
           struct_lines.append("} w2c_game;")
 
-          # 3. Stub wasm2c functions not already defined/declared in Source/
+          # 3. Extract exact prototypes for functions defined in Source/*.c and stub the rest
           all_w2c = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", src_text)))
           skip_names = {"w2c_env", "w2c_game", "w2c_wasi__snapshot__preview1", "w2c_env_memory"}
-          funcs = []
-          for fn in all_w2c:
-              if fn in skip_names:
-                  continue
-              if re.search(r"\b" + re.escape(fn) + r"\s*\([^;{]*\)\s*\{", src_text):
-                  continue
-              if re.search(r"(?:void|u8|u16|u32|u64|s8|s16|s32|s64|f32|f64|int|bool|size_t|uint\d+_t|int\d+_t|wasm_rt_\w+)\s*\*?\s*\b" + re.escape(fn) + r"\s*\([^;{]*\)\s*;", src_text):
-                  continue
-              funcs.append(fn)
-
           ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", src_text))
           ptr_funcs.update(["w2c_game_0x5F_indirect_function_table", "wasm2c_game_get_func_type"])
 
@@ -113,6 +109,7 @@ jobs:
               "#pragma once",
               "#include <stdint.h>",
               "#include <stdbool.h>",
+              "#include <stddef.h>",
               '#include "wasm-rt.h"',
               "typedef uint8_t u8;",
               "typedef int8_t s8;",
@@ -125,6 +122,7 @@ jobs:
               "typedef float f32;",
               "typedef double f64;",
               "struct w2c_env;",
+              "struct w2c_wasi__snapshot__preview1;",
               "wasm_rt_shared_memory_t *w2c_env_memory(struct w2c_env *env);",
               *struct_lines,
           ]
@@ -137,7 +135,27 @@ jobs:
               *ef_c_lines,
           ]
 
-          for fn in funcs:
+          for fn in all_w2c:
+              if fn in skip_names:
+                  continue
+              # Check if defined in Source/*.c -> emit exact matching prototype in game.h, no stub in game.c
+              defn = re.search(
+                  r"(?m)^[ \t]*((?:const\s+)?(?:struct\s+\w+|\w+)(?:\s*\*+\s*|\s+))"
+                  + re.escape(fn)
+                  + r"\s*\(([^;{}]*)\)\s*\{",
+                  c_text,
+              )
+              if defn and defn.group(1).strip() not in ("return", "else", "static"):
+                  ret_t = " ".join(defn.group(1).split())
+                  params = " ".join(defn.group(2).split())
+                  h_lines.append(f"{ret_t} {fn}({params});")
+                  continue
+
+              # Skip if already declared in Source/*.h
+              if re.search(r"\b" + re.escape(fn) + r"\s*\([^;{]*\)\s*;", h_text):
+                  continue
+
+              # Otherwise declare in game.h and stub in game.c
               if fn in ptr_funcs:
                   h_lines.append(f"void *{fn}(void *a, ...);")
                   c_lines.append(f"void *{fn}(void *a, ...) {{ return pg_stub_buf; }}")
