@@ -42,12 +42,41 @@ jobs:
           import re
           from pathlib import Path
 
-          src_text = "\n".join(
-              p.read_text(errors="ignore")
-              for p in Path("Source").rglob("*")
-              if p.suffix in (".c", ".h", ".m", ".mm", ".inc")
-          )
+          src_files = [
+              p for p in Path("Source").rglob("*")
+              if p.suffix in (".c", ".h", ".m", ".mm", ".cpp", ".inc")
+          ]
+          src_text = "\n".join(p.read_text(errors="ignore") for p in src_files)
 
+          # 1. Stub any missing local headers (e.g. engine-functions.h)
+          existing = {p.name for p in Path(".").rglob("*.h")} | {p.name for p in Path(".").rglob("*.inc")}
+          includes = set(re.findall(r'#include\s+"([^"]+)"', src_text))
+          for inc in sorted(includes):
+              base = Path(inc).name
+              if base not in existing:
+                  target = Path("Generated") / inc
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_text("#pragma once\n")
+                  (Path("Generated") / base).write_text("#pragma once\n")
+
+          # Populate engine-functions.h with any FN_* / ENGINE_FN_* symbols referenced in Source
+          fn_macros = sorted(set(re.findall(r"\b((?:PG_)?(?:ENGINE_)?FN_[A-Za-z0-9_]+)\b", src_text)))
+          ef_lines = [
+              "#pragma once",
+              "#include <stdint.h>",
+              "#define ENGINE_FUNCTION_COUNT 1",
+              "#define WASM_FUNCTION_COUNT 1",
+          ]
+          ef_c_lines = []
+          for m in fn_macros:
+              if re.search(r"\b" + re.escape(m) + r"\s*\(", src_text):
+                  ef_lines.append(f"uint64_t {m}(void *a, ...);")
+                  ef_c_lines.append(f"uint64_t {m}(void *a, ...) {{ return 0; }}")
+              else:
+                  ef_lines.append(f"#define {m} 0u")
+          Path("Generated/engine-functions.h").write_text("\n".join(ef_lines) + "\n")
+
+          # 2. Stub wasm2c game.h and game.c
           funcs = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text)))
           ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text))
           ptr_funcs.update(["w2c_game_0x5F_indirect_function_table", "wasm2c_game_get_func_type"])
@@ -70,8 +99,10 @@ jobs:
           ]
           c_lines = [
               '#include "game.h"',
+              '#include "engine-functions.h"',
               "#include <stddef.h>",
-              "static uint8_t pg_stub_buf[64];",
+              "static uint8_t pg_stub_buf[4096];",
+              *ef_c_lines,
           ]
 
           for fn in funcs:
