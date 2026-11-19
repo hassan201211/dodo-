@@ -59,7 +59,6 @@ jobs:
                   target.write_text("#pragma once\n")
                   (Path("Generated") / base).write_text("#pragma once\n")
 
-          # Populate engine-functions.h with any FN_* / ENGINE_FN_* symbols referenced in Source
           fn_macros = sorted(set(re.findall(r"\b((?:PG_)?(?:ENGINE_)?FN_[A-Za-z0-9_]+)\b", src_text)))
           ef_lines = [
               "#pragma once",
@@ -76,25 +75,44 @@ jobs:
                   ef_lines.append(f"#define {m} 0u")
           Path("Generated/engine-functions.h").write_text("\n".join(ef_lines) + "\n")
 
-          # 2. Stub wasm2c game.h and game.c
+          # 2. Discover struct w2c_game members used across Source/
+          member_candidates = set(re.findall(r"(?:->|\.)(w2c_[A-Za-z0-9_]+)\b(?!\s*\()", src_text))
+          member_candidates.update(re.findall(r"\binstance->([A-Za-z0-9_]+)\b", src_text))
+          member_candidates.update(re.findall(r"(?:->|\.)game\.([A-Za-z0-9_]+)\b", src_text))
+          member_candidates.add("w2c_env_memory")
+
+          struct_lines = ["typedef struct w2c_game {", "  uint8_t _unused;"]
+          for f in sorted(member_candidates):
+              if "memory" in f:
+                  struct_lines.append(f"  wasm_rt_memory_t *{f};")
+              elif "table" in f:
+                  struct_lines.append(f"  wasm_rt_funcref_table_t {f};")
+              elif re.search(r"\*\s*\(?\s*\w+\s*->\s*" + re.escape(f) + r"\b", src_text):
+                  struct_lines.append(f"  u32 *{f};")
+              else:
+                  struct_lines.append(f"  u32 {f};")
+          struct_lines.append("} w2c_game;")
+
+          # 3. Stub wasm2c game.h and game.c with full wasm2c primitive typedefs
           funcs = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text)))
           ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text))
           ptr_funcs.update(["w2c_game_0x5F_indirect_function_table", "wasm2c_game_get_func_type"])
-          fields = sorted(set(re.findall(r"(?:->|\.)game\.([A-Za-z0-9_]+)", src_text)))
-
-          struct_lines = ["typedef struct w2c_game {", "  uint8_t _unused;"]
-          for f in fields:
-              if "table" in f:
-                  struct_lines.append(f"  wasm_rt_funcref_table_t {f};")
-              else:
-                  struct_lines.append(f"  uint64_t {f};")
-          struct_lines.append("} w2c_game;")
 
           h_lines = [
               "#pragma once",
               "#include <stdint.h>",
               "#include <stdbool.h>",
               '#include "wasm-rt.h"',
+              "typedef uint8_t u8;",
+              "typedef int8_t s8;",
+              "typedef uint16_t u16;",
+              "typedef int16_t s16;",
+              "typedef uint32_t u32;",
+              "typedef int32_t s32;",
+              "typedef uint64_t u64;",
+              "typedef int64_t s64;",
+              "typedef float f32;",
+              "typedef double f64;",
               *struct_lines,
           ]
           c_lines = [
@@ -110,11 +128,12 @@ jobs:
                   h_lines.append(f"void *{fn}(void *a, ...);")
                   c_lines.append(f"void *{fn}(void *a, ...) {{ return pg_stub_buf; }}")
               else:
-                  h_lines.append(f"uint64_t {fn}(void *a, ...);")
-                  c_lines.append(f"uint64_t {fn}(void *a, ...) {{ return 0; }}")
+                  h_lines.append(f"u64 {fn}(void *a, ...);")
+                  c_lines.append(f"u64 {fn}(void *a, ...) {{ return 0; }}")
 
           Path("Generated/game.h").write_text("\n".join(h_lines) + "\n")
           Path("Generated/game.c").write_text("\n".join(c_lines) + "\n")
+          Path("Generated/Imports.c").write_text('#include "HostInternal.h"\n')
           Path("Resources/manifest.json").write_text("{}\n")
           Path("GeneratedResources/shader-reflection.jsonl").write_text("")
           Path("GeneratedResources/shaders-iphoneos.metallib").write_bytes(b"")
