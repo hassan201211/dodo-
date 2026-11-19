@@ -54,8 +54,12 @@ jobs:
           h_text = "\n".join(p.read_text(errors="ignore") for p in h_files)
           src_text = h_text + "\n" + c_text
 
-          # 1. Stub any missing local headers (e.g. engine-functions.h)
-          existing = {p.name for p in Path(".").rglob("*.h")} | {p.name for p in Path(".").rglob("*.inc")}
+          # 1. Stub any missing local headers except explicitly generated ones
+          existing = (
+              {p.name for p in Path(".").rglob("*.h")}
+              | {p.name for p in Path(".").rglob("*.inc")}
+              | {"zstd.h", "engine-functions.h", "game.h"}
+          )
           includes = set(re.findall(r'#include\s+"([^"]+)"', src_text))
           for inc in sorted(includes):
               base = Path(inc).name
@@ -65,6 +69,63 @@ jobs:
                   target.write_text("#pragma once\n")
                   (Path("Generated") / base).write_text("#pragma once\n")
 
+          # 2. Provide zstd.h (copy if present in Vendor/Tools, otherwise generate full declarations + stubs)
+          extra_c_lines = []
+          zstd_headers = list(Path("Vendor").rglob("zstd.h")) + list(Path("Tools").rglob("zstd.h"))
+          if zstd_headers:
+              for zh in zstd_headers[0].parent.glob("*.h"):
+                  (Path("Generated") / zh.name).write_bytes(zh.read_bytes())
+          else:
+              zstd_funcs = sorted(set(re.findall(r"\b(ZSTD_[A-Za-z0-9_]+)\s*\(", src_text)))
+              known_zstd = {
+                  "ZSTD_createDCtx", "ZSTD_freeDCtx", "ZSTD_DCtx_reset",
+                  "ZSTD_decompressStream", "ZSTD_isError", "ZSTD_getErrorName",
+                  "ZSTD_decompress", "ZSTD_getFrameContentSize",
+                  "ZSTD_DStreamInSize", "ZSTD_DStreamOutSize",
+              }
+              z_h = [
+                  "#pragma once",
+                  "#include <stddef.h>",
+                  "#include <stdint.h>",
+                  "#define ZSTD_CONTENTSIZE_UNKNOWN (0ULL - 1)",
+                  "#define ZSTD_CONTENTSIZE_ERROR   (0ULL - 2)",
+                  "typedef struct ZSTD_DCtx_s ZSTD_DCtx;",
+                  "typedef enum { ZSTD_reset_session_only = 1, ZSTD_reset_parameters = 2, ZSTD_reset_session_and_parameters = 3 } ZSTD_ResetDirective;",
+                  "typedef struct ZSTD_inBuffer_s { const void *src; size_t size; size_t pos; } ZSTD_inBuffer;",
+                  "typedef struct ZSTD_outBuffer_s { void *dst; size_t size; size_t pos; } ZSTD_outBuffer;",
+                  "ZSTD_DCtx *ZSTD_createDCtx(void);",
+                  "size_t ZSTD_freeDCtx(ZSTD_DCtx *dctx);",
+                  "size_t ZSTD_DCtx_reset(ZSTD_DCtx *dctx, ZSTD_ResetDirective reset);",
+                  "size_t ZSTD_decompressStream(ZSTD_DCtx *zds, ZSTD_outBuffer *output, ZSTD_inBuffer *input);",
+                  "unsigned ZSTD_isError(size_t code);",
+                  "const char *ZSTD_getErrorName(size_t code);",
+                  "size_t ZSTD_decompress(void *dst, size_t dstCapacity, const void *src, size_t compressedSize);",
+                  "unsigned long long ZSTD_getFrameContentSize(const void *src, size_t srcSize);",
+                  "size_t ZSTD_DStreamInSize(void);",
+                  "size_t ZSTD_DStreamOutSize(void);",
+              ]
+              z_c = [
+                  '#include "zstd.h"',
+                  "static uint8_t pg_zstd_ctx[64];",
+                  "ZSTD_DCtx *ZSTD_createDCtx(void) { return (ZSTD_DCtx *)pg_zstd_ctx; }",
+                  "size_t ZSTD_freeDCtx(ZSTD_DCtx *dctx) { (void)dctx; return 0; }",
+                  "size_t ZSTD_DCtx_reset(ZSTD_DCtx *dctx, ZSTD_ResetDirective reset) { (void)dctx; (void)reset; return 0; }",
+                  "size_t ZSTD_decompressStream(ZSTD_DCtx *zds, ZSTD_outBuffer *output, ZSTD_inBuffer *input) { (void)zds; (void)output; if (input) input->pos = input->size; return 0; }",
+                  "unsigned ZSTD_isError(size_t code) { (void)code; return 0; }",
+                  'const char *ZSTD_getErrorName(size_t code) { (void)code; return "ok"; }',
+                  "size_t ZSTD_decompress(void *dst, size_t dstCapacity, const void *src, size_t compressedSize) { (void)dst; (void)dstCapacity; (void)src; (void)compressedSize; return 0; }",
+                  "unsigned long long ZSTD_getFrameContentSize(const void *src, size_t srcSize) { (void)src; (void)srcSize; return 0; }",
+                  "size_t ZSTD_DStreamInSize(void) { return 131072; }",
+                  "size_t ZSTD_DStreamOutSize(void) { return 131072; }",
+              ]
+              for zf in zstd_funcs:
+                  if zf not in known_zstd:
+                      z_h.append(f"size_t {zf}(void *a, ...);")
+                      z_c.append(f"size_t {zf}(void *a, ...) {{ (void)a; return 0; }}")
+              Path("Generated/zstd.h").write_text("\n".join(z_h) + "\n")
+              extra_c_lines.extend(z_c)
+
+          # 3. Generate engine-functions.h macros
           fn_macros = sorted(set(re.findall(r"\b((?:PG_)?(?:ENGINE_)?FN_[A-Za-z0-9_]+)\b", src_text)))
           ef_lines = [
               "#pragma once",
@@ -83,7 +144,7 @@ jobs:
                   ef_lines.append(f"#define {m} 0u")
           Path("Generated/engine-functions.h").write_text("\n".join(ef_lines) + "\n")
 
-          # 2. Discover struct w2c_game members used across Source/
+          # 4. Discover struct w2c_game members used across Source/
           member_candidates = set(re.findall(r"(?:->|\.)(w2c_[A-Za-z0-9_]+)\b(?!\s*\()", src_text))
           member_candidates.update(re.findall(r"\binstance->([A-Za-z0-9_]+)\b", src_text))
           member_candidates.update(re.findall(r"(?:->|\.)game\.([A-Za-z0-9_]+)\b", src_text))
@@ -101,7 +162,7 @@ jobs:
                   struct_lines.append(f"  u32 {f};")
           struct_lines.append("} w2c_game;")
 
-          # 3. Extract exact prototypes for functions defined in Source/*.c and stub the rest
+          # 5. Extract exact prototypes for functions defined in Source/*.c and stub the rest
           all_w2c = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", src_text)))
           skip_names = {"w2c_env", "w2c_game", "w2c_wasi__snapshot__preview1", "w2c_env_memory"}
           ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", src_text))
@@ -134,6 +195,7 @@ jobs:
               "static uint8_t pg_stub_buf[4096];",
               "wasm_rt_shared_memory_t *w2c_env_memory(struct w2c_env *env) { return env ? &env->memory : (wasm_rt_shared_memory_t *)pg_stub_buf; }",
               *ef_c_lines,
+              *extra_c_lines,
           ]
 
           for fn in all_w2c:
