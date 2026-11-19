@@ -478,17 +478,17 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
         launchButton.configurationUpdateHandler = { [weak self] button in
             playStyle?(button)
             // Before Play is pressed a disabled button still says Play (files or mode missing).
-            let play = ModGuard.withoutModsNextStart ? AppLanguage.choose("Play without mods") : AppLanguage.choose("Play")
+            let play = ModGuard.withoutModsNextStart ? "تشغيل بدون مودات" : "تشغيل اللعبة"
             let title = button.isEnabled || !(self?.engineStarted ?? false) ? play : button.title(for: .disabled) ?? AppLanguage.choose("Loading…")
             var text = AttributedString(title)
-            text.font = Theme.display(20, .heavy)
-            text.foregroundColor = button.isEnabled ? UIColor(red: 0.16, green: 0.07, blue: 0.02, alpha: 1) : UIColor(white: 1, alpha: 0.7)
+            text.font = Theme.display(18, .heavy)
+            text.foregroundColor = button.isEnabled ? UIColor(red: 0.08, green: 0.05, blue: 0.01, alpha: 1) : UIColor(white: 1, alpha: 0.7)
             button.configuration?.attributedTitle = text
             button.configuration?.image = title == play ? UIImage(systemName: "play.fill", withConfiguration: UIImage.SymbolConfiguration(weight: .heavy)) : nil
         }
         launchButton.addTarget(self, action: #selector(startEngine), for: .touchUpInside)
         output.isEditable = false
-        output.isHidden = !ProcessInfo.processInfo.arguments.contains("--show-log")
+        output.isHidden = false
         output.backgroundColor = UIColor.black.withAlphaComponent(0.65)
         output.textColor = .white
         output.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -497,6 +497,13 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
         home.settingsButton.addAction(UIAction { [weak self] _ in self?.showSettings() }, for: .touchUpInside)
         home.layoutButton.addAction(UIAction { [weak self] _ in self?.showLayoutEditor() }, for: .touchUpInside)
         home.onFiles = { [weak self] in self?.showGameFiles() }
+        home.onOpenMods = { [weak self] in
+            guard let self, self.presentedViewController == nil else { return }
+            let nav = UINavigationController(rootViewController: ModsViewController())
+            Theme.styleNavigation(nav)
+            self.present(nav, animated: true)
+        }
+        home.onImportZip = { [weak self] in self?.showGameFiles() }
         home.onMap = { [weak self] index in
             guard let self, !self.engineStarted else { return }
             GameSettings.shared.sandboxMap = index
@@ -506,6 +513,9 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
             guard let self, !self.engineStarted else { return }
             GameSettings.shared.gameMode = GameMode.allCases[index]
             self.refreshModeChoice()
+        }
+        if GameSettings.shared.gameModeChoice == nil {
+            GameSettings.shared.gameModeChoice = .story
         }
         updateServerStatus()
         // Automation: --forget-game-folder starts with no game folder chosen (download and Continue tests, GTA-93).
@@ -1035,7 +1045,7 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
             guard let data = GameFolder.open() else {
                 appendLog("The game folder on this iPhone can't be opened any more. Choose it again.")
                 showWhenFree(title: AppLanguage.choose("Game files not found"), message: AppLanguage.choose("The game folder was moved or deleted. Put it back in Files › On My iPhone › GTA V Port, or pick it again."))
-                GameFolder.clear(); updateServerStatus(); launchButton.isEnabled = true; launchButton.setTitle(AppLanguage.choose("Play"), for: .normal)
+                GameFolder.clear(); updateServerStatus(); launchButton.isEnabled = true; launchButton.setTitle("تشغيل اللعبة", for: .normal)
                 return
             }
             PGSetLocalGameFolder(data.path)
