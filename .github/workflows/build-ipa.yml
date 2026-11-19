@@ -29,6 +29,12 @@ jobs:
             git clone --depth 1 --branch v0.8.2 https://github.com/simd-everywhere/simde.git Tools/simde
           fi
 
+          if [ ! -d "Tools/bcdec" ]; then
+            curl -L https://codeload.github.com/iOrange/bcdec/tar.gz/80859ed3b7afb1c527a2a99d70c61457bea72d0c -o Tools/bcdec.tar.gz
+            tar -xzf Tools/bcdec.tar.gz -C Tools
+            mv Tools/bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c Tools/bcdec
+          fi
+
           python3 Scripts/build_opus.py --sdk iphoneos
           python3 Scripts/build_blink.py --sdk iphoneos
 
@@ -44,7 +50,7 @@ jobs:
 
           funcs = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text)))
           ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text))
-          ptr_funcs.add("w2c_game_0x5F_indirect_function_table")
+          ptr_funcs.update(["w2c_game_0x5F_indirect_function_table", "wasm2c_game_get_func_type"])
           fields = sorted(set(re.findall(r"(?:->|\.)game\.([A-Za-z0-9_]+)", src_text)))
 
           struct_lines = ["typedef struct w2c_game {", "  uint8_t _unused;"]
@@ -65,12 +71,13 @@ jobs:
           c_lines = [
               '#include "game.h"',
               "#include <stddef.h>",
+              "static uint8_t pg_stub_buf[64];",
           ]
 
           for fn in funcs:
               if fn in ptr_funcs:
                   h_lines.append(f"void *{fn}(void *a, ...);")
-                  c_lines.append(f"void *{fn}(void *a, ...) {{ return NULL; }}")
+                  c_lines.append(f"void *{fn}(void *a, ...) {{ return pg_stub_buf; }}")
               else:
                   h_lines.append(f"uint64_t {fn}(void *a, ...);")
                   c_lines.append(f"uint64_t {fn}(void *a, ...) {{ return 0; }}")
@@ -79,6 +86,7 @@ jobs:
           Path("Generated/game.c").write_text("\n".join(c_lines) + "\n")
           Path("Resources/manifest.json").write_text("{}\n")
           Path("GeneratedResources/shader-reflection.jsonl").write_text("")
+          Path("GeneratedResources/shaders-iphoneos.metallib").write_bytes(b"")
           EOF
 
           xcodegen generate --spec project.yml
