@@ -74,9 +74,11 @@ jobs:
           ]
           ef_c_lines = []
           for m in fn_macros:
+              if re.search(r"\b" + re.escape(m) + r"\s*\([^;{]*\)\s*\{", src_text):
+                  continue
               if re.search(r"\b" + re.escape(m) + r"\s*\(", src_text):
-                  ef_lines.append(f"uint64_t {m}(void *a, ...);")
-                  ef_c_lines.append(f"uint64_t {m}(void *a, ...) {{ return 0; }}")
+                  ef_lines.append(f"#define {m} pg_stub_{m}")
+                  ef_c_lines.append(f"uint64_t pg_stub_{m}(void *a, ...) {{ return 0; }}")
               else:
                   ef_lines.append(f"#define {m} 0u")
           Path("Generated/engine-functions.h").write_text("\n".join(ef_lines) + "\n")
@@ -128,7 +130,6 @@ jobs:
           ]
           c_lines = [
               '#include "HostInternal.h"',
-              '#include "engine-functions.h"',
               "#include <stddef.h>",
               "static uint8_t pg_stub_buf[4096];",
               "wasm_rt_shared_memory_t *w2c_env_memory(struct w2c_env *env) { return env ? &env->memory : (wasm_rt_shared_memory_t *)pg_stub_buf; }",
@@ -138,7 +139,6 @@ jobs:
           for fn in all_w2c:
               if fn in skip_names:
                   continue
-              # Check if defined in Source/*.c -> emit exact matching prototype in game.h, no stub in game.c
               defn = re.search(
                   r"(?m)^[ \t]*((?:const\s+)?(?:struct\s+\w+|\w+)(?:\s*\*+\s*|\s+))"
                   + re.escape(fn)
@@ -151,11 +151,9 @@ jobs:
                   h_lines.append(f"{ret_t} {fn}({params});")
                   continue
 
-              # Skip if already declared in Source/*.h
               if re.search(r"\b" + re.escape(fn) + r"\s*\([^;{]*\)\s*;", h_text):
                   continue
 
-              # Otherwise declare in game.h and stub in game.c
               if fn in ptr_funcs:
                   h_lines.append(f"void *{fn}(void *a, ...);")
                   c_lines.append(f"void *{fn}(void *a, ...) {{ return pg_stub_buf; }}")
