@@ -19,23 +19,19 @@ jobs:
         working-directory: app
         run: |
           mkdir -p Tools Generated Build Resources GeneratedResources
-          
-          # 1. Download WABT runtime headers & C files
+
           if [ ! -d "Tools/wabt-1.0.42" ]; then
             curl -L https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-macos-arm64.tar.gz -o Tools/wabt.tar.gz
             tar -xzf Tools/wabt.tar.gz -C Tools
           fi
 
-          # 2. Clone SIMDe
           if [ ! -d "Tools/simde" ]; then
             git clone --depth 1 --branch v0.8.2 https://github.com/simd-everywhere/simde.git Tools/simde
           fi
 
-          # 3. Build native audio & network libraries (opus & blink)
           python3 Scripts/build_opus.py --sdk iphoneos
           python3 Scripts/build_blink.py --sdk iphoneos
 
-          # 4. Generate standalone C headers & stubs so IPA builds without a game server
           python3 - << 'EOF'
           import re
           from pathlib import Path
@@ -49,13 +45,22 @@ jobs:
           funcs = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text)))
           ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_game_[A-Za-z0-9_]+)\b", src_text))
           ptr_funcs.add("w2c_game_0x5F_indirect_function_table")
+          fields = sorted(set(re.findall(r"(?:->|\.)game\.([A-Za-z0-9_]+)", src_text)))
+
+          struct_lines = ["typedef struct w2c_game {", "  uint8_t _unused;"]
+          for f in fields:
+              if "table" in f:
+                  struct_lines.append(f"  wasm_rt_funcref_table_t {f};")
+              else:
+                  struct_lines.append(f"  uint64_t {f};")
+          struct_lines.append("} w2c_game;")
 
           h_lines = [
               "#pragma once",
               "#include <stdint.h>",
               "#include <stdbool.h>",
               '#include "wasm-rt.h"',
-              "typedef struct w2c_game { uint8_t _unused; } w2c_game;",
+              *struct_lines,
           ]
           c_lines = [
               '#include "game.h"',
@@ -76,7 +81,6 @@ jobs:
           Path("GeneratedResources/shader-reflection.jsonl").write_text("")
           EOF
 
-          # 5. Generate Xcode project
           xcodegen generate --spec project.yml
 
       - name: Build unsigned IPA
