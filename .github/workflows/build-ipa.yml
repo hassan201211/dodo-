@@ -225,6 +225,29 @@ jobs:
           Path("GeneratedResources/shaders-iphoneos.metallib").write_bytes(b"")
           EOF
 
+          # 7. Auto-import launcher artwork from App/LauncherArt into App/Assets.xcassets
+          python3 - << 'ART'
+          import json, shutil
+          from pathlib import Path
+
+          art_dir = Path("App/LauncherArt")
+          assets_dir = Path("App/Assets.xcassets")
+          if art_dir.exists():
+              for img in sorted(art_dir.iterdir()):
+                  if img.suffix.lower() not in (".png", ".jpg", ".jpeg"):
+                      continue
+                  iset = assets_dir / f"{img.stem}.imageset"
+                  if iset.exists():
+                      shutil.rmtree(iset)
+                  iset.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(img, iset / img.name)
+                  (iset / "Contents.json").write_text(json.dumps({
+                      "images": [{"filename": img.name, "idiom": "universal"}],
+                      "info": {"author": "xcode", "version": 1},
+                  }, indent=2) + "\n")
+                  print(f"Imported {img.name} -> {iset}")
+          ART
+
           xcodegen generate --spec project.yml
 
       - name: Build unsigned IPA
