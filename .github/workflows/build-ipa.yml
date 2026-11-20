@@ -18,7 +18,7 @@ jobs:
       - name: Prepare dependencies and engine stubs
         working-directory: app
         run: |
-          mkdir -p Tools Generated/zstd/common Generated/zstd/decompress Build Resources GeneratedResources
+          mkdir -p Tools Generated Generated/zstd Build/zstd_obj Resources GeneratedResources
 
           # 1. WABT runtime
           if [ ! -d "Tools/wabt-1.0.42" ]; then
@@ -31,26 +31,38 @@ jobs:
             git clone --depth 1 --branch v0.8.2 https://github.com/simd-everywhere/simde.git Tools/simde
           fi
 
-          # 3. bcdec (clone directly and verify bcdec.h exists)
-          rm -rf Tools/bcdec
-          git clone --depth 1 https://github.com/iOrange/bcdec.git Tools/bcdec
-          test -f Tools/bcdec/bcdec.h
+          # 3. bcdec (clone with direct raw fallback)
+          mkdir -p Tools/bcdec
+          if [ ! -s "Tools/bcdec/bcdec.h" ]; then
+            git clone --depth 1 https://github.com/iOrange/bcdec.git Tools/bcdec_tmp && cp Tools/bcdec_tmp/bcdec.h Tools/bcdec/bcdec.h || true
+          fi
+          if [ ! -s "Tools/bcdec/bcdec.h" ]; then
+            curl -fL https://raw.githubusercontent.com/iOrange/bcdec/master/bcdec.h -o Tools/bcdec/bcdec.h
+          fi
+          test -s Tools/bcdec/bcdec.h
 
-          # 4. Official Zstandard (zstd) headers & C sources
+          # 4. Official Zstandard (zstd) headers & static library for iOS arm64
           if [ ! -d "Tools/zstd-1.5.6" ]; then
             curl -fL https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz -o Tools/zstd.tar.gz
             tar -xzf Tools/zstd.tar.gz -C Tools
           fi
           cp Tools/zstd-1.5.6/lib/*.h Generated/
           cp Tools/zstd-1.5.6/lib/*.h Generated/zstd/
-          cp Tools/zstd-1.5.6/lib/common/*.c Tools/zstd-1.5.6/lib/common/*.h Generated/zstd/common/
-          cp Tools/zstd-1.5.6/lib/decompress/*.c Tools/zstd-1.5.6/lib/decompress/*.h Generated/zstd/decompress/
 
-          # Ensure NativeDecompress.c includes Generated/zstd.h directly
           if ! grep -q '#include "zstd.h"' Source/NativeDecompress.c; then
             printf '#include "zstd.h"\n' | cat - Source/NativeDecompress.c > Source/NativeDecompress.c.tmp
             mv Source/NativeDecompress.c.tmp Source/NativeDecompress.c
           fi
+
+          IOS_CC=$(xcrun --sdk iphoneos -f clang)
+          IOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          for src in Tools/zstd-1.5.6/lib/common/*.c Tools/zstd-1.5.6/lib/decompress/*.c; do
+            obj="Build/zstd_obj/$(basename "${src%.c}").o"
+            "$IOS_CC" -arch arm64 -isysroot "$IOS_SDK" -mios-version-min=16.0 -O2 \
+              -DZSTD_DISABLE_ASM=1 -ITools/zstd-1.5.6/lib -ITools/zstd-1.5.6/lib/common \
+              -c "$src" -o "$obj"
+          done
+          xcrun --sdk iphoneos ar rcs Tools/libzstd.a Build/zstd_obj/*.o
 
           # 5. Native audio & network libs
           python3 Scripts/build_opus.py --sdk iphoneos
@@ -69,11 +81,18 @@ jobs:
               p for p in Path("Source").rglob("*")
               if p.suffix in (".h", ".inc")
           ]
+          app_files = [
+              p for p in Path("App").rglob("*")
+              if p.suffix in (".c", ".h", ".m", ".mm", ".cpp", ".swift")
+          ] if Path("App").exists() else []
+
           c_text = "\n".join(p.read_text(errors="ignore") for p in c_files)
           h_text = "\n".join(p.read_text(errors="ignore") for p in h_files)
+          app_text = "\n".join(p.read_text(errors="ignore") for p in app_files)
           src_text = h_text + "\n" + c_text
+          all_text = src_text + "\n" + app_text
 
-          # Stub any other missing local headers
+          # Stub any missing local headers
           existing = (
               {p.name for p in Path(".").rglob("*.h")}
               | {p.name for p in Path(".").rglob("*.inc")}
@@ -89,7 +108,7 @@ jobs:
                   (Path("Generated") / base).write_text("#pragma once\n")
 
           # Generate engine-functions.h macros
-          fn_macros = sorted(set(re.findall(r"\b((?:PG_)?(?:ENGINE_)?FN_[A-Za-z0-9_]+)\b", src_text)))
+          fn_macros = sorted(set(re.findall(r"\b((?:PG_)?(?:ENGINE_)?FN_[A-Za-z0-9_]+)\b", all_text)))
           ef_lines = [
               "#pragma once",
               "#include <stdint.h>",
@@ -100,7 +119,7 @@ jobs:
           for m in fn_macros:
               if re.search(r"\b" + re.escape(m) + r"\s*\([^;{]*\)\s*\{", src_text):
                   continue
-              if re.search(r"\b" + re.escape(m) + r"\s*\(", src_text):
+              if re.search(r"\b" + re.escape(m) + r"\s*\(", all_text):
                   ef_lines.append(f"#define {m} pg_stub_{m}")
                   ef_c_lines.append(f"uint64_t pg_stub_{m}(void *a, ...) {{ return 0; }}")
               else:
@@ -125,11 +144,21 @@ jobs:
                   struct_lines.append(f"  u32 {f};")
           struct_lines.append("} w2c_game;")
 
-          # Extract exact prototypes for functions defined in Source/ and stub the rest
-          all_w2c = sorted(set(re.findall(r"\b((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", src_text)))
-          skip_names = {"w2c_env", "w2c_game", "w2c_wasi__snapshot__preview1", "w2c_env_memory"} | member_candidates
-          ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", src_text))
+          # Find pagesize / constant wasm2c symbols vs callable functions
+          pagesize_syms = sorted(set(re.findall(r"\b(wasm2c_[A-Za-z0-9_]*pagesize[A-Za-z0-9_]*)\b", all_text)))
+          pagesize_syms.append("wasm2c_game_pagesize_env_memory")
+          pagesize_syms = sorted(set(pagesize_syms))
+
+          called_w2c = set(re.findall(r"\b((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b(?=\s*\()", all_text))
+          ptr_funcs = set(re.findall(r"\*\s*\w+\s*=\s*((?:w2c|wasm2c)_[A-Za-z0-9_]+)\b", all_text))
           ptr_funcs.update(["w2c_game_0x5F_indirect_function_table", "wasm2c_game_get_func_type"])
+          all_funcs = sorted(called_w2c | ptr_funcs)
+
+          skip_names = (
+              {"w2c_env", "w2c_game", "w2c_wasi__snapshot__preview1", "w2c_env_memory"}
+              | member_candidates
+              | set(pagesize_syms)
+          )
 
           h_lines = [
               "#pragma once",
@@ -150,7 +179,10 @@ jobs:
               "struct w2c_env;",
               "struct w2c_wasi__snapshot__preview1;",
               "wasm_rt_shared_memory_t *w2c_env_memory(struct w2c_env *env);",
+              *[f"#define {ps} 65536u" for ps in pagesize_syms],
               *struct_lines,
+              "static void pg_asi_dummy_handler(w2c_game *g, u64 c) { (void)g; (void)c; }",
+              "static const struct { uint64_t hash; void (*handler)(w2c_game *, u64); } pg_asi_natives[] = { { 0ULL, pg_asi_dummy_handler } };",
           ]
           c_lines = [
               '#include "HostInternal.h"',
@@ -160,7 +192,7 @@ jobs:
               *ef_c_lines,
           ]
 
-          for fn in all_w2c:
+          for fn in all_funcs:
               if fn in skip_names:
                   continue
               defn = re.search(
@@ -185,12 +217,6 @@ jobs:
                   h_lines.append(f"u64 {fn}(void *a, ...);")
                   c_lines.append(f"u64 {fn}(void *a, ...) {{ return 0; }}")
 
-          # If project.yml lists Generated/game.c explicitly rather than scanning Generated/, compile zstd inline
-          proj_yml = Path("project.yml").read_text(errors="ignore")
-          if "Generated/game.c" in proj_yml:
-              for zc in sorted(Path("Generated/zstd").rglob("*.c")):
-                  c_lines.append(f'#include "{zc.relative_to("Generated").as_posix()}"')
-
           Path("Generated/game.h").write_text("\n".join(h_lines) + "\n")
           Path("Generated/game.c").write_text("\n".join(c_lines) + "\n")
           Path("Generated/Imports.c").write_text('#include "HostInternal.h"\n')
@@ -212,7 +238,7 @@ jobs:
             -derivedDataPath Build/Release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS=App/Free.entitlements \
-            GCC_PREPROCESSOR_DEFINITIONS='$(inherited) ZSTD_DISABLE_ASM=1' \
+            OTHER_LDFLAGS='$(inherited) $(SRCROOT)/Tools/libzstd.a' \
             build
 
           APP="Build/Release/Build/Products/Release-iphoneos/PlayGTA5Native.app"
