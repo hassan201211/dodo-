@@ -31,7 +31,7 @@ jobs:
             git clone --depth 1 --branch v0.8.2 https://github.com/simd-everywhere/simde.git Tools/simde
           fi
 
-          # 3. bcdec (clone with direct raw fallback)
+          # 3. bcdec
           mkdir -p Tools/bcdec
           if [ ! -s "Tools/bcdec/bcdec.h" ]; then
             git clone --depth 1 https://github.com/iOrange/bcdec.git Tools/bcdec_tmp && cp Tools/bcdec_tmp/bcdec.h Tools/bcdec/bcdec.h || true
@@ -68,7 +68,7 @@ jobs:
           python3 Scripts/build_opus.py --sdk iphoneos
           python3 Scripts/build_blink.py --sdk iphoneos
 
-          # 6. Generate matching engine headers and stubs
+          # 6. Generate matching engine headers and weak stubs (prevents duplicate symbol errors)
           python3 - << 'EOF'
           import re
           from pathlib import Path
@@ -121,7 +121,7 @@ jobs:
                   continue
               if re.search(r"\b" + re.escape(m) + r"\s*\(", all_text):
                   ef_lines.append(f"#define {m} pg_stub_{m}")
-                  ef_c_lines.append(f"uint64_t pg_stub_{m}(void *a, ...) {{ return 0; }}")
+                  ef_c_lines.append(f"__attribute__((weak)) uint64_t pg_stub_{m}(void *a, ...) {{ return 0; }}")
               else:
                   ef_lines.append(f"#define {m} 0u")
           Path("Generated/engine-functions.h").write_text("\n".join(ef_lines) + "\n")
@@ -188,7 +188,7 @@ jobs:
               '#include "HostInternal.h"',
               "#include <stddef.h>",
               "static uint8_t pg_stub_buf[4096];",
-              "wasm_rt_shared_memory_t *w2c_env_memory(struct w2c_env *env) { return env ? &env->memory : (wasm_rt_shared_memory_t *)pg_stub_buf; }",
+              "__attribute__((weak)) wasm_rt_shared_memory_t *w2c_env_memory(struct w2c_env *env) { return env ? &env->memory : (wasm_rt_shared_memory_t *)pg_stub_buf; }",
               *ef_c_lines,
           ]
 
@@ -212,10 +212,10 @@ jobs:
 
               if fn in ptr_funcs:
                   h_lines.append(f"void *{fn}(void *a, ...);")
-                  c_lines.append(f"void *{fn}(void *a, ...) {{ return pg_stub_buf; }}")
+                  c_lines.append(f"__attribute__((weak)) void *{fn}(void *a, ...) {{ return pg_stub_buf; }}")
               else:
                   h_lines.append(f"u64 {fn}(void *a, ...);")
-                  c_lines.append(f"u64 {fn}(void *a, ...) {{ return 0; }}")
+                  c_lines.append(f"__attribute__((weak)) u64 {fn}(void *a, ...) {{ return 0; }}")
 
           Path("Generated/game.h").write_text("\n".join(h_lines) + "\n")
           Path("Generated/game.c").write_text("\n".join(c_lines) + "\n")
@@ -230,6 +230,11 @@ jobs:
       - name: Build unsigned IPA
         working-directory: app
         run: |
+          ZSTD_LD=""
+          if ! nm -gU Vendor/libarchive.xcframework/ios-arm64/libarchive.a 2>/dev/null | grep -q ZSTD_createDCtx; then
+            ZSTD_LD='$(SRCROOT)/Tools/libzstd.a'
+          fi
+
           xcodebuild -project PlayGTA5Native.xcodeproj \
             -scheme PlayGTA5Native \
             -configuration Release \
@@ -238,7 +243,7 @@ jobs:
             -derivedDataPath Build/Release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS=App/Free.entitlements \
-            OTHER_LDFLAGS='$(inherited) $(SRCROOT)/Tools/libzstd.a' \
+            OTHER_LDFLAGS="\$(inherited) $ZSTD_LD" \
             build
 
           APP="Build/Release/Build/Products/Release-iphoneos/PlayGTA5Native.app"
