@@ -22,7 +22,7 @@ jobs:
 
           # 1. WABT runtime
           if [ ! -d "Tools/wabt-1.0.42" ]; then
-            curl -L https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-macos-arm64.tar.gz -o Tools/wabt.tar.gz
+            curl -fL https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-macos-arm64.tar.gz -o Tools/wabt.tar.gz
             tar -xzf Tools/wabt.tar.gz -C Tools
           fi
 
@@ -31,16 +31,14 @@ jobs:
             git clone --depth 1 --branch v0.8.2 https://github.com/simd-everywhere/simde.git Tools/simde
           fi
 
-          # 3. bcdec
-          if [ ! -d "Tools/bcdec" ]; then
-            curl -L https://codeload.github.com/iOrange/bcdec/tar.gz/80859ed3b7afb1c527a2a99d70c61457bea72d0c -o Tools/bcdec.tar.gz
-            tar -xzf Tools/bcdec.tar.gz -C Tools
-            mv Tools/bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c Tools/bcdec
-          fi
+          # 3. bcdec (clone directly and verify bcdec.h exists)
+          rm -rf Tools/bcdec
+          git clone --depth 1 https://github.com/iOrange/bcdec.git Tools/bcdec
+          test -f Tools/bcdec/bcdec.h
 
           # 4. Official Zstandard (zstd) headers & C sources
           if [ ! -d "Tools/zstd-1.5.6" ]; then
-            curl -L https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz -o Tools/zstd.tar.gz
+            curl -fL https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz -o Tools/zstd.tar.gz
             tar -xzf Tools/zstd.tar.gz -C Tools
           fi
           cp Tools/zstd-1.5.6/lib/*.h Generated/
@@ -48,7 +46,7 @@ jobs:
           cp Tools/zstd-1.5.6/lib/common/*.c Tools/zstd-1.5.6/lib/common/*.h Generated/zstd/common/
           cp Tools/zstd-1.5.6/lib/decompress/*.c Tools/zstd-1.5.6/lib/decompress/*.h Generated/zstd/decompress/
 
-          # Force NativeDecompress.c to include Generated/zstd.h directly
+          # Ensure NativeDecompress.c includes Generated/zstd.h directly
           if ! grep -q '#include "zstd.h"' Source/NativeDecompress.c; then
             printf '#include "zstd.h"\n' | cat - Source/NativeDecompress.c > Source/NativeDecompress.c.tmp
             mv Source/NativeDecompress.c.tmp Source/NativeDecompress.c
@@ -186,6 +184,12 @@ jobs:
               else:
                   h_lines.append(f"u64 {fn}(void *a, ...);")
                   c_lines.append(f"u64 {fn}(void *a, ...) {{ return 0; }}")
+
+          # If project.yml lists Generated/game.c explicitly rather than scanning Generated/, compile zstd inline
+          proj_yml = Path("project.yml").read_text(errors="ignore")
+          if "Generated/game.c" in proj_yml:
+              for zc in sorted(Path("Generated/zstd").rglob("*.c")):
+                  c_lines.append(f'#include "{zc.relative_to("Generated").as_posix()}"')
 
           Path("Generated/game.h").write_text("\n".join(h_lines) + "\n")
           Path("Generated/game.c").write_text("\n".join(c_lines) + "\n")
