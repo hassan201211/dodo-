@@ -1,11 +1,12 @@
 import UIKit
 
-/// Rockstar Games Launcher / Soon Store styled start screen:
-/// - Collapsible left black sidebar (GTA V, GTA Online, GTA VI, Soon Store)
-/// - Top navigation tabs (الألعاب، المودات، البيانات وملفات الحفظ، الإعدادات)
-/// - GTA V & GTA VI horizontal scrollable performance preset cards (24, 30, 60, 720p, YOUR SETTINGS)
+/// Rockstar Games Launcher / Rom.dom styled start screen:
+/// - Adaptive layout supporting all iPhone sizes from iPhone 7 (667x375) to latest Pro Max & iPad
+/// - Collapsible left black sidebar (GTA V, GTA Online, GTA VI, Rom.dom)
+/// - Top navigation tabs (الألعاب، المودات، البيانات وملفات الحفظ، الإعدادات) with zero overlap
+/// - GTA V & GTA VI horizontal scrollable performance preset cards (24 FPS, 30 FPS, 60 FPS, 720p, YOUR SETTINGS)
 /// - GTA Online 3-mode cards (تجول حر، استضافة، الانضمام إلى جلسة لعب) + session invite controls
-/// - Soon Store social overlay (تيليجرام، انستغرام، تيك توك)
+/// - Rom.dom social overlay (تيليجرام، انستغرام، تيك توك)
 final class HomeView: UIView {
     enum FilesState { case ready, attention, problem, busy }
 
@@ -39,21 +40,24 @@ final class HomeView: UIView {
 
     // MARK: - Constants & Colors
 
+    private static let brandName = "Rom.dom"
     private static let gold = UIColor(red: 0.97, green: 0.67, blue: 0.10, alpha: 1)
     private static let vicePink = UIColor(red: 0.91, green: 0.29, blue: 0.56, alpha: 1)
     private static let viceOrange = UIColor(red: 0.98, green: 0.57, blue: 0.27, alpha: 1)
     private static let onlineRed = UIColor(red: 0.89, green: 0.14, blue: 0.16, alpha: 1)
 
-    // Edit your store links here anytime
+    // Edit your Rom.dom links here anytime
     private let socialItems: [(title: String, url: String, kind: SocialCard.Kind)] = [
-        ("تيليجرام سون", "https://t.me/fivestarport", .telegram),
-        ("انستغرام سون", "https://instagram.com", .instagram),
-        ("تيك توك سون", "https://tiktok.com", .tiktok)
+        ("تيليجرام Rom.dom", "https://t.me/fivestarport", .telegram),
+        ("انستغرام Rom.dom", "https://instagram.com", .instagram),
+        ("تيك توك Rom.dom", "https://tiktok.com", .tiktok)
     ]
 
     // MARK: - Sidebar
 
+    private let sidebarAnchor = UIView()
     private let sidebar = UIView()
+    private let sidebarDimmer = UIControl()
     private var sidebarWidthConstraint: NSLayoutConstraint!
     private var sidebarExpanded = false
     private var sidebarButtons: [LauncherSidebarItem] = []
@@ -97,6 +101,7 @@ final class HomeView: UIView {
     private let perfScrollArrow = UIButton(type: .system)
     private var perfCards: [LauncherPerfCard] = []
     private var selectedPerfIndex = 1 // 30 FPS Balanced default
+    private var perfInitialScrollDone = false
 
     private let onlineContainer = UIView()
     private var onlineModeCards: [OnlineModeCard] = []
@@ -136,17 +141,16 @@ final class HomeView: UIView {
 
     init(modes: [(title: String, symbol: String)], log: UIView) {
         super.init(frame: .zero)
-        // Lock layout direction LTR so the black sidebar stays on the LEFT and cards on the RIGHT,
-        // matching the Rockstar Launcher design even on Arabic iOS.
         semanticContentAttribute = .forceLeftToRight
 
-        let backdrop = Theme.backdrop(image: "StartBackground", darken: 0.42)
+        let backdrop = Theme.backdrop(image: "StartBackground", darken: 0.36)
         pin(backdrop, to: self)
 
-        setupSidebar()
+        setupSidebarAnchor()
         setupTopBar()
         setupPages(log: log)
         setupStoreOverlay()
+        setupSidebarOverlay()
         setupToastBanner()
 
         selectSidebarGame(0, notify: false)
@@ -158,17 +162,55 @@ final class HomeView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    // MARK: - Left Collapsible Black Sidebar
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !perfInitialScrollDone, perfScrollView.bounds.width > 0 {
+            perfInitialScrollDone = true
+            perfScrollView.setContentOffset(.zero, animated: false)
+        }
+    }
 
-    private func setupSidebar() {
+    // MARK: - Sidebar Anchor & Overlay (Prevents clipping on iPhone 7 -> Pro Max)
+
+    private func setupSidebarAnchor() {
+        sidebarAnchor.isUserInteractionEnabled = false
+        sidebarAnchor.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(sidebarAnchor)
+        NSLayoutConstraint.activate([
+            sidebarAnchor.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebarAnchor.topAnchor.constraint(equalTo: topAnchor),
+            sidebarAnchor.bottomAnchor.constraint(equalTo: bottomAnchor),
+            sidebarAnchor.widthAnchor.constraint(equalToConstant: 62)
+        ])
+    }
+
+    private func setupSidebarOverlay() {
+        sidebarDimmer.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        sidebarDimmer.alpha = 0
+        sidebarDimmer.isHidden = true
+        sidebarDimmer.translatesAutoresizingMaskIntoConstraints = false
+        sidebarDimmer.addAction(UIAction { [weak self] _ in
+            if self?.sidebarExpanded == true { self?.toggleSidebar() }
+        }, for: .touchUpInside)
+        addSubview(sidebarDimmer)
+
         sidebar.backgroundColor = .black
         sidebar.semanticContentAttribute = .forceLeftToRight
+        sidebar.layer.shadowColor = UIColor.black.cgColor
+        sidebar.layer.shadowOpacity = 0.65
+        sidebar.layer.shadowRadius = 16
+        sidebar.layer.shadowOffset = CGSize(width: 4, height: 0)
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(sidebar)
 
         let guide = safeAreaLayoutGuide
-        sidebarWidthConstraint = sidebar.widthAnchor.constraint(equalToConstant: 66)
+        sidebarWidthConstraint = sidebar.widthAnchor.constraint(equalToConstant: 62)
         NSLayoutConstraint.activate([
+            sidebarDimmer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebarDimmer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            sidebarDimmer.topAnchor.constraint(equalTo: topAnchor),
+            sidebarDimmer.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -178,7 +220,7 @@ final class HomeView: UIView {
         // Rockstar R★ Badge
         let rBadge = UILabel()
         rBadge.text = "R★"
-        rBadge.font = Theme.display(17, .black)
+        rBadge.font = Theme.display(16, .black)
         rBadge.textColor = .black
         rBadge.backgroundColor = Self.gold
         rBadge.textAlignment = .center
@@ -191,12 +233,12 @@ final class HomeView: UIView {
             ("جراند ثفت أوتو 5", .gtaV),
             ("جراند ثفت أوتو أونلاين", .gtaOnline),
             ("جراند ثفت أوتو 6", .gtaVI),
-            ("سون ستور", .store)
+            (Self.brandName, .store)
         ]
 
         let navStack = UIStackView()
         navStack.axis = .vertical
-        navStack.spacing = 14
+        navStack.spacing = 12
         navStack.semanticContentAttribute = .forceLeftToRight
         navStack.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(navStack)
@@ -205,6 +247,7 @@ final class HomeView: UIView {
             let btn = LauncherSidebarItem(title: item.title, kind: item.kind)
             btn.addAction(UIAction { [weak self] _ in
                 guard let self else { return }
+                if self.sidebarExpanded { self.toggleSidebar() }
                 if idx == 3 {
                     self.showStoreOverlay(true)
                 } else {
@@ -217,51 +260,57 @@ final class HomeView: UIView {
             navStack.addArrangedSubview(btn)
         }
 
-        // Brand footer text (visible when sidebar expands)
-        sidebarFooterLabel.text = "ipasoon"
-        sidebarFooterLabel.font = Theme.body(13, .medium)
-        sidebarFooterLabel.textColor = UIColor(white: 1, alpha: 0.72)
+        sidebarFooterLabel.text = Self.brandName
+        sidebarFooterLabel.font = Theme.display(14, .bold)
+        sidebarFooterLabel.textColor = UIColor(white: 1, alpha: 0.78)
         sidebarFooterLabel.textAlignment = .center
         sidebarFooterLabel.isHidden = true
         sidebarFooterLabel.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(sidebarFooterLabel)
 
-        // Bottom Sidebar Expand/Collapse Button
         let toggleBtn = UIButton(type: .system)
-        toggleBtn.setImage(UIImage(systemName: "sidebar.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)), for: .normal)
+        toggleBtn.setImage(UIImage(systemName: "sidebar.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)), for: .normal)
         toggleBtn.tintColor = UIColor(white: 1, alpha: 0.78)
         toggleBtn.translatesAutoresizingMaskIntoConstraints = false
         toggleBtn.addAction(UIAction { [weak self] _ in self?.toggleSidebar() }, for: .touchUpInside)
         sidebar.addSubview(toggleBtn)
 
         NSLayoutConstraint.activate([
-            rBadge.topAnchor.constraint(equalTo: guide.topAnchor, constant: 14),
-            rBadge.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 16),
-            rBadge.widthAnchor.constraint(equalToConstant: 34),
-            rBadge.heightAnchor.constraint(equalToConstant: 34),
+            rBadge.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
+            rBadge.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 15),
+            rBadge.widthAnchor.constraint(equalToConstant: 32),
+            rBadge.heightAnchor.constraint(equalToConstant: 32),
 
-            navStack.topAnchor.constraint(equalTo: rBadge.bottomAnchor, constant: 30),
+            navStack.topAnchor.constraint(equalTo: rBadge.bottomAnchor, constant: 22),
             navStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
             navStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
 
-            toggleBtn.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -14),
-            toggleBtn.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 18),
+            toggleBtn.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12),
+            toggleBtn.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 16),
             toggleBtn.widthAnchor.constraint(equalToConstant: 30),
             toggleBtn.heightAnchor.constraint(equalToConstant: 30),
 
-            sidebarFooterLabel.bottomAnchor.constraint(equalTo: toggleBtn.topAnchor, constant: -18),
+            sidebarFooterLabel.bottomAnchor.constraint(equalTo: toggleBtn.topAnchor, constant: -14),
             sidebarFooterLabel.centerXAnchor.constraint(equalTo: sidebar.centerXAnchor)
         ])
     }
 
     private func toggleSidebar() {
         sidebarExpanded.toggle()
-        sidebarWidthConstraint.constant = sidebarExpanded ? 210 : 66
+        sidebarWidthConstraint.constant = sidebarExpanded ? 215 : 62
         sidebarFooterLabel.isHidden = !sidebarExpanded
         for btn in sidebarButtons { btn.setExpanded(sidebarExpanded) }
-        UIView.animate(withDuration: 0.24, delay: 0, options: .curveEaseInOut) {
-            self.layoutIfNeeded()
+        if sidebarExpanded {
+            sidebarDimmer.isHidden = false
+            bringSubviewToFront(sidebarDimmer)
+            bringSubviewToFront(sidebar)
         }
+        UIView.animate(withDuration: 0.22, delay: 0, options: .curveEaseInOut, animations: {
+            self.sidebarDimmer.alpha = self.sidebarExpanded ? 1 : 0
+            self.layoutIfNeeded()
+        }, completion: { _ in
+            if !self.sidebarExpanded { self.sidebarDimmer.isHidden = true }
+        })
     }
 
     private func selectSidebarGame(_ index: Int, notify: Bool) {
@@ -274,14 +323,12 @@ final class HomeView: UIView {
             btn.isSelected = (i == index)
         }
 
-        // Update top circular game emblem & Mods tab visibility (hidden on GTA VI like reference)
         topGameAvatar.image = LauncherSidebarItem.makeIcon(for: index == 0 ? .gtaV : index == 1 ? .gtaOnline : .gtaVI)
         if topTabButtons.count > 1 {
             topTabButtons[1].isHidden = isGTAVI
             if isGTAVI && selectedTabIndex == 1 { selectTopTab(0) }
         }
 
-        // Left hero column updates
         heroLogoView.setGame(index)
         playButton.isHidden = isGTAVI && !testMapAvailable
         installGTAVIButton.isHidden = !(isGTAVI && !testMapAvailable)
@@ -290,14 +337,13 @@ final class HomeView: UIView {
         onlineMetaStack.isHidden = !isOnline
         gtaviMetaStack.isHidden = !isGTAVI
 
-        // Right area switches between Performance Cards (GTA V / VI) and 3-card Online selector
         perfContainer.isHidden = isOnline
         onlineContainer.isHidden = !isOnline
 
-        // Refresh card theme (Gold for GTA V, Vice Pink for GTA VI)
         for (i, card) in perfCards.enumerated() {
             card.setTheme(isGTAVI: isGTAVI, index: i)
         }
+        perfScrollView.setContentOffset(.zero, animated: false)
         applyPerformancePreset(selectedPerfIndex, showToast: false)
 
         if notify {
@@ -317,34 +363,34 @@ final class HomeView: UIView {
         }
     }
 
-    // MARK: - Top Navigation Bar
+    // MARK: - Top Navigation Bar (Zero overlap on iPhone 7 -> Pro Max)
 
     private func setupTopBar() {
         topBar.semanticContentAttribute = .forceLeftToRight
         topBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBar)
 
-        // Compact files status pill on the left side of topBar
-        filesPill.backgroundColor = UIColor.black.withAlphaComponent(0.45)
-        filesPill.layer.cornerRadius = 14
+        // Compact files status pill on the far left of topBar
+        filesPill.backgroundColor = UIColor.black.withAlphaComponent(0.50)
+        filesPill.layer.cornerRadius = 12
         filesPill.layer.borderWidth = 1
         filesPill.layer.borderColor = UIColor(white: 1, alpha: 0.16).cgColor
         filesPill.translatesAutoresizingMaskIntoConstraints = false
         filesPill.addAction(UIAction { [weak self] _ in self?.onFiles?() }, for: .touchUpInside)
 
         filesDot.contentMode = .scaleAspectFit
-        filesDot.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        filesDot.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
         filesSpinner.color = Self.gold
-        filesSpinner.transform = CGAffineTransform(scaleX: 0.72, y: 0.72)
+        filesSpinner.transform = CGAffineTransform(scaleX: 0.65, y: 0.65)
 
-        filesPillLabel.font = Theme.body(11, .semibold)
-        filesPillLabel.textColor = UIColor(white: 1, alpha: 0.9)
+        filesPillLabel.font = Theme.body(10.5, .semibold)
+        filesPillLabel.textColor = UIColor(white: 1, alpha: 0.92)
         filesPillLabel.lineBreakMode = .byTruncatingTail
 
         let dotBox = UIView()
         dotBox.translatesAutoresizingMaskIntoConstraints = false
-        dotBox.widthAnchor.constraint(equalToConstant: 16).isActive = true
-        dotBox.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        dotBox.widthAnchor.constraint(equalToConstant: 14).isActive = true
+        dotBox.heightAnchor.constraint(equalToConstant: 14).isActive = true
         for v in [filesDot, filesSpinner] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             dotBox.addSubview(v)
@@ -355,26 +401,25 @@ final class HomeView: UIView {
         }
 
         let pillRow = UIStackView(arrangedSubviews: [dotBox, filesPillLabel])
-        pillRow.spacing = 6
+        pillRow.spacing = 5
         pillRow.alignment = .center
         pillRow.isUserInteractionEnabled = false
         pillRow.translatesAutoresizingMaskIntoConstraints = false
         filesPill.addSubview(pillRow)
         NSLayoutConstraint.activate([
-            pillRow.leadingAnchor.constraint(equalTo: filesPill.leadingAnchor, constant: 10),
-            pillRow.trailingAnchor.constraint(equalTo: filesPill.trailingAnchor, constant: -10),
-            pillRow.topAnchor.constraint(equalTo: filesPill.topAnchor, constant: 5),
-            pillRow.bottomAnchor.constraint(equalTo: filesPill.bottomAnchor, constant: -5),
-            filesPill.widthAnchor.constraint(lessThanOrEqualToConstant: 195)
+            pillRow.leadingAnchor.constraint(equalTo: filesPill.leadingAnchor, constant: 8),
+            pillRow.trailingAnchor.constraint(equalTo: filesPill.trailingAnchor, constant: -8),
+            pillRow.topAnchor.constraint(equalTo: filesPill.topAnchor, constant: 4),
+            pillRow.bottomAnchor.constraint(equalTo: filesPill.bottomAnchor, constant: -4),
+            filesPill.widthAnchor.constraint(lessThanOrEqualToConstant: 125)
         ])
         topBar.addSubview(filesPill)
 
-        // Top Navigation Tabs matching reference order (left -> right):
-        // الألعاب   المودات   البيانات وملفات الحفظ   الإعدادات
+        // Top Navigation Tabs: الألعاب   المودات   البيانات وملفات الحفظ   الإعدادات
         let tabTitles = ["الألعاب", "المودات", "البيانات وملفات الحفظ", "الإعدادات"]
         let tabsStack = UIStackView()
         tabsStack.axis = .horizontal
-        tabsStack.spacing = 22
+        tabsStack.spacing = 12
         tabsStack.alignment = .center
         tabsStack.semanticContentAttribute = .forceLeftToRight
         tabsStack.translatesAutoresizingMaskIntoConstraints = false
@@ -383,13 +428,16 @@ final class HomeView: UIView {
         for (i, title) in tabTitles.enumerated() {
             var cfg = UIButton.Configuration.plain()
             cfg.title = title
-            cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 4, bottom: 6, trailing: 4)
+            cfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 3, bottom: 4, trailing: 3)
             cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attr in
                 var a = attr
-                a.font = Theme.body(14, .bold)
+                a.font = Theme.body(13, .bold)
                 return a
             }
             let btn = UIButton(configuration: cfg)
+            btn.titleLabel?.adjustsFontSizeToFitWidth = true
+            btn.titleLabel?.minimumScaleFactor = 0.78
+            btn.setContentCompressionResistancePriority(.required, for: .horizontal)
             btn.addAction(UIAction { [weak self] _ in
                 self?.showStoreOverlay(false)
                 self?.selectTopTab(i)
@@ -398,9 +446,8 @@ final class HomeView: UIView {
             tabsStack.addArrangedSubview(btn)
         }
 
-        // Top-right circular game emblem
         topGameAvatar.contentMode = .scaleAspectFill
-        topGameAvatar.layer.cornerRadius = 17
+        topGameAvatar.layer.cornerRadius = 16
         topGameAvatar.layer.borderWidth = 1.5
         topGameAvatar.layer.borderColor = UIColor(white: 1, alpha: 0.45).cgColor
         topGameAvatar.clipsToBounds = true
@@ -409,20 +456,21 @@ final class HomeView: UIView {
 
         let guide = safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            topBar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: 14),
-            topBar.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
-            topBar.topAnchor.constraint(equalTo: guide.topAnchor, constant: 8),
-            topBar.heightAnchor.constraint(equalToConstant: 40),
+            topBar.leadingAnchor.constraint(equalTo: sidebarAnchor.trailingAnchor, constant: 10),
+            topBar.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -14),
+            topBar.topAnchor.constraint(equalTo: guide.topAnchor, constant: 6),
+            topBar.heightAnchor.constraint(equalToConstant: 36),
 
             filesPill.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
             filesPill.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
 
             topGameAvatar.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
             topGameAvatar.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            topGameAvatar.widthAnchor.constraint(equalToConstant: 34),
-            topGameAvatar.heightAnchor.constraint(equalToConstant: 34),
+            topGameAvatar.widthAnchor.constraint(equalToConstant: 32),
+            topGameAvatar.heightAnchor.constraint(equalToConstant: 32),
 
-            tabsStack.trailingAnchor.constraint(equalTo: topGameAvatar.leadingAnchor, constant: -24),
+            tabsStack.leadingAnchor.constraint(greaterThanOrEqualTo: filesPill.trailingAnchor, constant: 10),
+            tabsStack.trailingAnchor.constraint(equalTo: topGameAvatar.leadingAnchor, constant: -14),
             tabsStack.centerYAnchor.constraint(equalTo: topBar.centerYAnchor)
         ])
     }
@@ -451,10 +499,10 @@ final class HomeView: UIView {
             page.translatesAutoresizingMaskIntoConstraints = false
             addSubview(page)
             NSLayoutConstraint.activate([
-                page.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: 16),
-                page.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -14),
-                page.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 10),
-                page.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12)
+                page.leadingAnchor.constraint(equalTo: sidebarAnchor.trailingAnchor, constant: 12),
+                page.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -12),
+                page.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+                page.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -10)
             ])
         }
 
@@ -464,10 +512,9 @@ final class HomeView: UIView {
         buildSettingsPage()
     }
 
-    // MARK: - Games Page (Exact Rockstar Reference Layout)
+    // MARK: - Games Page (Responsive from iPhone 7 to Pro Max)
 
     private func buildGamesPage() {
-        // Left Hero Column (Logo + Play/Install Button + Meta captions)
         let heroCol = UIView()
         heroCol.semanticContentAttribute = .forceLeftToRight
         heroCol.translatesAutoresizingMaskIntoConstraints = false
@@ -488,15 +535,16 @@ final class HomeView: UIView {
         }, for: .touchUpInside)
         heroCol.addSubview(installGTAVIButton)
 
-        // GTA V Benchmark Link under Play button
+        // GTA V Benchmark Link
         var benchCfg = UIButton.Configuration.plain()
         benchCfg.title = "بدء اختبار الأداء"
         benchCfg.image = UIImage(systemName: "chart.bar.doc.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
         benchCfg.imagePadding = 5
         benchCfg.imagePlacement = .leading
         benchCfg.baseForegroundColor = UIColor(white: 1, alpha: 0.78)
+        benchCfg.contentInsets = .zero
         benchCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Theme.body(12, .semibold); return a
+            var a = a; a.font = Theme.body(11.5, .semibold); return a
         }
         benchmarkButton.configuration = benchCfg
         benchmarkButton.translatesAutoresizingMaskIntoConstraints = false
@@ -505,20 +553,20 @@ final class HomeView: UIView {
         }, for: .touchUpInside)
         heroCol.addSubview(benchmarkButton)
 
-        // GTA Online Player Info under Play button
+        // GTA Online Player Info
         onlinePlayerLabel.text = "اللعب بشخصية: \(playerName)"
-        onlinePlayerLabel.font = Theme.body(12, .semibold)
+        onlinePlayerLabel.font = Theme.body(11.5, .semibold)
         onlinePlayerLabel.textColor = UIColor(white: 1, alpha: 0.85)
         onlinePlayerLabel.textAlignment = .center
 
         var customCfg = UIButton.Configuration.plain()
         customCfg.title = "تعديل وتخصيص شخصيتك"
-        customCfg.image = UIImage(systemName: "gearshape.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
-        customCfg.imagePadding = 5
+        customCfg.image = UIImage(systemName: "gearshape.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+        customCfg.imagePadding = 4
         customCfg.baseForegroundColor = UIColor(white: 1, alpha: 0.72)
         customCfg.contentInsets = .zero
         customCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Theme.body(11, .medium); return a
+            var a = a; a.font = Theme.body(10.5, .medium); return a
         }
         onlineCustomizeButton.configuration = customCfg
         onlineCustomizeButton.addAction(UIAction { [weak self] _ in self?.promptEditPlayerName() }, for: .touchUpInside)
@@ -531,33 +579,32 @@ final class HomeView: UIView {
         onlineMetaStack.translatesAutoresizingMaskIntoConstraints = false
         heroCol.addSubview(onlineMetaStack)
 
-        // GTA VI Beta Badge under Install button
+        // GTA VI Beta Badge
         let devLbl = UILabel()
         devLbl.text = "قيد التطوير"
-        devLbl.font = Theme.body(12, .semibold)
+        devLbl.font = Theme.body(11.5, .semibold)
         devLbl.textColor = UIColor(white: 1, alpha: 0.82)
 
         let betaBadge = UILabel()
         betaBadge.text = "  نسخة تجريبية  "
-        betaBadge.font = Theme.body(11, .bold)
+        betaBadge.font = Theme.body(10.5, .bold)
         betaBadge.textColor = .white
         betaBadge.backgroundColor = Self.vicePink
         betaBadge.layer.cornerRadius = 5
         betaBadge.clipsToBounds = true
-        betaBadge.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        betaBadge.heightAnchor.constraint(equalToConstant: 19).isActive = true
 
         gtaviMetaStack.addArrangedSubviews([betaBadge, devLbl])
         gtaviMetaStack.axis = .horizontal
         gtaviMetaStack.alignment = .center
-        gtaviMetaStack.spacing = 8
+        gtaviMetaStack.spacing = 6
         gtaviMetaStack.isHidden = true
         gtaviMetaStack.translatesAutoresizingMaskIntoConstraints = false
         heroCol.addSubview(gtaviMetaStack)
 
-        // Controller & Preload subtle labels at bottom-left
-        controllerLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
-        controllerLabel.textColor = UIColor(white: 1, alpha: 0.55)
-        preloadLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+        controllerLabel.font = .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium)
+        controllerLabel.textColor = UIColor(white: 1, alpha: 0.52)
+        preloadLabel.font = .monospacedDigitSystemFont(ofSize: 9.5, weight: .semibold)
         preloadLabel.textColor = Self.gold
         preloadLabel.isHidden = true
 
@@ -568,54 +615,55 @@ final class HomeView: UIView {
         statusMini.translatesAutoresizingMaskIntoConstraints = false
         heroCol.addSubview(statusMini)
 
-        // Right Area: Performance Carousel (GTA V & GTA VI)
         buildPerformanceCarousel()
-
-        // Right Area: Online Modes & Session Panel (GTA Online)
         buildOnlinePanel()
 
+        let heroWidth = heroCol.widthAnchor.constraint(equalTo: gamesPage.widthAnchor, multiplier: 0.27)
+        let heroMin = heroCol.widthAnchor.constraint(greaterThanOrEqualToConstant: 165)
+        let heroMax = heroCol.widthAnchor.constraint(lessThanOrEqualToConstant: 215)
+
         NSLayoutConstraint.activate([
-            heroCol.leadingAnchor.constraint(equalTo: gamesPage.leadingAnchor, constant: 4),
+            heroCol.leadingAnchor.constraint(equalTo: gamesPage.leadingAnchor, constant: 2),
             heroCol.topAnchor.constraint(equalTo: gamesPage.topAnchor),
             heroCol.bottomAnchor.constraint(equalTo: gamesPage.bottomAnchor),
-            heroCol.widthAnchor.constraint(equalToConstant: 215),
+            heroWidth, heroMin, heroMax,
 
             heroLogoView.centerXAnchor.constraint(equalTo: heroCol.centerXAnchor),
-            heroLogoView.topAnchor.constraint(equalTo: heroCol.topAnchor, constant: 6),
-            heroLogoView.widthAnchor.constraint(equalToConstant: 205),
-            heroLogoView.heightAnchor.constraint(equalToConstant: 162),
+            heroLogoView.topAnchor.constraint(equalTo: heroCol.topAnchor, constant: 4),
+            heroLogoView.widthAnchor.constraint(equalTo: heroCol.widthAnchor, multiplier: 0.92),
+            heroLogoView.heightAnchor.constraint(equalTo: gamesPage.heightAnchor, multiplier: 0.50),
 
-            playButton.topAnchor.constraint(equalTo: heroLogoView.bottomAnchor, constant: 14),
-            playButton.leadingAnchor.constraint(equalTo: heroCol.leadingAnchor, constant: 6),
-            playButton.trailingAnchor.constraint(equalTo: heroCol.trailingAnchor, constant: -6),
-            playButton.heightAnchor.constraint(equalToConstant: 46),
+            playButton.topAnchor.constraint(equalTo: heroLogoView.bottomAnchor, constant: 10),
+            playButton.leadingAnchor.constraint(equalTo: heroCol.leadingAnchor, constant: 4),
+            playButton.trailingAnchor.constraint(equalTo: heroCol.trailingAnchor, constant: -4),
+            playButton.heightAnchor.constraint(equalToConstant: 42),
 
             installGTAVIButton.topAnchor.constraint(equalTo: playButton.topAnchor),
             installGTAVIButton.leadingAnchor.constraint(equalTo: playButton.leadingAnchor),
             installGTAVIButton.trailingAnchor.constraint(equalTo: playButton.trailingAnchor),
-            installGTAVIButton.heightAnchor.constraint(equalToConstant: 46),
+            installGTAVIButton.heightAnchor.constraint(equalToConstant: 42),
 
-            benchmarkButton.topAnchor.constraint(equalTo: playButton.bottomAnchor, constant: 8),
+            benchmarkButton.topAnchor.constraint(equalTo: playButton.bottomAnchor, constant: 6),
             benchmarkButton.centerXAnchor.constraint(equalTo: heroCol.centerXAnchor),
 
-            onlineMetaStack.topAnchor.constraint(equalTo: playButton.bottomAnchor, constant: 8),
+            onlineMetaStack.topAnchor.constraint(equalTo: playButton.bottomAnchor, constant: 6),
             onlineMetaStack.centerXAnchor.constraint(equalTo: heroCol.centerXAnchor),
 
-            gtaviMetaStack.topAnchor.constraint(equalTo: playButton.bottomAnchor, constant: 10),
+            gtaviMetaStack.topAnchor.constraint(equalTo: playButton.bottomAnchor, constant: 8),
             gtaviMetaStack.centerXAnchor.constraint(equalTo: heroCol.centerXAnchor),
 
-            statusMini.leadingAnchor.constraint(equalTo: heroCol.leadingAnchor, constant: 6),
+            statusMini.leadingAnchor.constraint(equalTo: heroCol.leadingAnchor, constant: 4),
             statusMini.bottomAnchor.constraint(equalTo: heroCol.bottomAnchor),
 
-            perfContainer.leadingAnchor.constraint(equalTo: heroCol.trailingAnchor, constant: 18),
+            perfContainer.leadingAnchor.constraint(equalTo: heroCol.trailingAnchor, constant: 12),
             perfContainer.trailingAnchor.constraint(equalTo: gamesPage.trailingAnchor),
-            perfContainer.topAnchor.constraint(equalTo: gamesPage.topAnchor, constant: 10),
-            perfContainer.bottomAnchor.constraint(equalTo: gamesPage.bottomAnchor, constant: -14),
+            perfContainer.topAnchor.constraint(equalTo: gamesPage.topAnchor, constant: 6),
+            perfContainer.bottomAnchor.constraint(equalTo: gamesPage.bottomAnchor, constant: -10),
 
-            onlineContainer.leadingAnchor.constraint(equalTo: heroCol.trailingAnchor, constant: 18),
+            onlineContainer.leadingAnchor.constraint(equalTo: heroCol.trailingAnchor, constant: 12),
             onlineContainer.trailingAnchor.constraint(equalTo: gamesPage.trailingAnchor),
-            onlineContainer.topAnchor.constraint(equalTo: gamesPage.topAnchor, constant: 10),
-            onlineContainer.bottomAnchor.constraint(equalTo: gamesPage.bottomAnchor, constant: -8)
+            onlineContainer.topAnchor.constraint(equalTo: gamesPage.topAnchor, constant: 6),
+            onlineContainer.bottomAnchor.constraint(equalTo: gamesPage.bottomAnchor, constant: -6)
         ])
     }
 
@@ -631,7 +679,7 @@ final class HomeView: UIView {
         perfContainer.addSubview(perfScrollView)
 
         perfCardsStack.axis = .horizontal
-        perfCardsStack.spacing = 12
+        perfCardsStack.spacing = 10
         perfCardsStack.alignment = .fill
         perfCardsStack.semanticContentAttribute = .forceLeftToRight
         perfCardsStack.translatesAutoresizingMaskIntoConstraints = false
@@ -655,7 +703,11 @@ final class HomeView: UIView {
                 assetGTAVI: item.assetVI,
                 paletteIndex: i
             )
-            card.widthAnchor.constraint(equalToConstant: item.wide ? 235 : 152).isActive = true
+            // Responsive card widths: fits 24 FPS + wide 30 FPS + peek of 60 FPS on iPhone 7 (667pt) and Pro Max (932pt)
+            let w = card.widthAnchor.constraint(equalTo: perfScrollView.frameLayoutGuide.widthAnchor, multiplier: item.wide ? 0.45 : 0.30)
+            let wMin = card.widthAnchor.constraint(greaterThanOrEqualToConstant: item.wide ? 175 : 118)
+            NSLayoutConstraint.activate([w, wMin])
+
             card.addAction(UIAction { [weak self] _ in
                 self?.applyPerformancePreset(i, showToast: true)
             }, for: .touchUpInside)
@@ -663,13 +715,12 @@ final class HomeView: UIView {
             perfCardsStack.addArrangedSubview(card)
         }
 
-        // Floating right chevron button (>) to scroll smoothly through cards
-        perfScrollArrow.setImage(UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)), for: .normal)
+        perfScrollArrow.setImage(UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)), for: .normal)
         perfScrollArrow.tintColor = .white
-        perfScrollArrow.backgroundColor = UIColor.black.withAlphaComponent(0.72)
-        perfScrollArrow.layer.cornerRadius = 17
+        perfScrollArrow.backgroundColor = UIColor.black.withAlphaComponent(0.75)
+        perfScrollArrow.layer.cornerRadius = 16
         perfScrollArrow.layer.borderWidth = 1
-        perfScrollArrow.layer.borderColor = UIColor(white: 1, alpha: 0.25).cgColor
+        perfScrollArrow.layer.borderColor = UIColor(white: 1, alpha: 0.28).cgColor
         perfScrollArrow.translatesAutoresizingMaskIntoConstraints = false
         perfScrollArrow.addAction(UIAction { [weak self] _ in self?.scrollPerfCarousel() }, for: .touchUpInside)
         perfContainer.addSubview(perfScrollArrow)
@@ -681,22 +732,23 @@ final class HomeView: UIView {
             perfScrollView.bottomAnchor.constraint(equalTo: perfContainer.bottomAnchor),
 
             perfCardsStack.leadingAnchor.constraint(equalTo: perfScrollView.contentLayoutGuide.leadingAnchor),
-            perfCardsStack.trailingAnchor.constraint(equalTo: perfScrollView.contentLayoutGuide.trailingAnchor, constant: -30),
+            perfCardsStack.trailingAnchor.constraint(equalTo: perfScrollView.contentLayoutGuide.trailingAnchor, constant: -28),
             perfCardsStack.topAnchor.constraint(equalTo: perfScrollView.contentLayoutGuide.topAnchor),
             perfCardsStack.bottomAnchor.constraint(equalTo: perfScrollView.contentLayoutGuide.bottomAnchor),
             perfCardsStack.heightAnchor.constraint(equalTo: perfScrollView.frameLayoutGuide.heightAnchor),
 
             perfScrollArrow.trailingAnchor.constraint(equalTo: perfContainer.trailingAnchor, constant: -4),
             perfScrollArrow.centerYAnchor.constraint(equalTo: perfContainer.centerYAnchor),
-            perfScrollArrow.widthAnchor.constraint(equalToConstant: 34),
-            perfScrollArrow.heightAnchor.constraint(equalToConstant: 34)
+            perfScrollArrow.widthAnchor.constraint(equalToConstant: 32),
+            perfScrollArrow.heightAnchor.constraint(equalToConstant: 32)
         ])
     }
 
     private func scrollPerfCarousel() {
         let maxX = max(0, perfScrollView.contentSize.width - perfScrollView.bounds.width)
         guard maxX > 0 else { return }
-        let nextX = perfScrollView.contentOffset.x + 190
+        let step = perfScrollView.bounds.width * 0.42
+        let nextX = perfScrollView.contentOffset.x + step
         let targetX = perfScrollView.contentOffset.x >= maxX - 10 ? 0 : min(nextX, maxX)
         perfScrollView.setContentOffset(CGPoint(x: targetX, y: 0), animated: true)
     }
@@ -745,7 +797,7 @@ final class HomeView: UIView {
 
         let cardsRow = UIStackView()
         cardsRow.axis = .horizontal
-        cardsRow.spacing = 10
+        cardsRow.spacing = 8
         cardsRow.distribution = .fillEqually
         cardsRow.semanticContentAttribute = .forceLeftToRight
         cardsRow.translatesAutoresizingMaskIntoConstraints = false
@@ -764,22 +816,22 @@ final class HomeView: UIView {
             cardsRow.addArrangedSubview(card)
         }
 
-        // Info box (Free Roam / Host)
-        onlineInfoBox.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        onlineInfoBox.backgroundColor = UIColor.black.withAlphaComponent(0.58)
         onlineInfoBox.layer.cornerRadius = 8
         onlineInfoBox.translatesAutoresizingMaskIntoConstraints = false
         onlineContainer.addSubview(onlineInfoBox)
 
         onlineInfoLabel.text = "شخصيتك الأونلاين في مدينة لوس سانتوس المفتوحة: بدون قصة، مع قائمة مودات لكل شيء، وسباقات ومهمات ومعارك قراند أونلاين من صفحة المهمات. يمكنك فتح الجلسة لأصدقائك في أي وقت."
-        onlineInfoLabel.font = Theme.body(11.5, .medium)
+        onlineInfoLabel.font = Theme.body(11, .medium)
         onlineInfoLabel.textColor = UIColor(white: 1, alpha: 0.88)
         onlineInfoLabel.textAlignment = .right
         onlineInfoLabel.numberOfLines = 3
+        onlineInfoLabel.adjustsFontSizeToFitWidth = true
+        onlineInfoLabel.minimumScaleFactor = 0.8
         onlineInfoLabel.translatesAutoresizingMaskIntoConstraints = false
         onlineInfoBox.addSubview(onlineInfoLabel)
 
-        // Join Session box (Card 3)
-        onlineJoinBox.backgroundColor = UIColor.black.withAlphaComponent(0.60)
+        onlineJoinBox.backgroundColor = UIColor.black.withAlphaComponent(0.62)
         onlineJoinBox.layer.cornerRadius = 8
         onlineJoinBox.isHidden = true
         onlineJoinBox.translatesAutoresizingMaskIntoConstraints = false
@@ -800,7 +852,7 @@ final class HomeView: UIView {
 
         let sessionsTitle = UILabel()
         sessionsTitle.text = "الجلسات"
-        sessionsTitle.font = Theme.body(13, .bold)
+        sessionsTitle.font = Theme.body(12.5, .bold)
         sessionsTitle.textColor = .white
         sessionsTitle.textAlignment = .right
 
@@ -811,14 +863,16 @@ final class HomeView: UIView {
         joinTopRow.semanticContentAttribute = .forceLeftToRight
 
         onlineStatusLabel.text = "جارٍ البحث على شبكة Wi-Fi هذه... لم يُعثر على جلسات بعد. لصديق في مكان آخر: اضغط إدخال الرمز أو الصق الدعوة."
-        onlineStatusLabel.font = Theme.body(11, .regular)
-        onlineStatusLabel.textColor = UIColor(white: 1, alpha: 0.72)
+        onlineStatusLabel.font = Theme.body(10.5, .regular)
+        onlineStatusLabel.textColor = UIColor(white: 1, alpha: 0.74)
         onlineStatusLabel.textAlignment = .right
         onlineStatusLabel.numberOfLines = 2
+        onlineStatusLabel.adjustsFontSizeToFitWidth = true
+        onlineStatusLabel.minimumScaleFactor = 0.8
 
         let joinStack = UIStackView(arrangedSubviews: [joinTopRow, onlineStatusLabel])
         joinStack.axis = .vertical
-        joinStack.spacing = 6
+        joinStack.spacing = 4
         joinStack.translatesAutoresizingMaskIntoConstraints = false
         onlineJoinBox.addSubview(joinStack)
 
@@ -826,15 +880,15 @@ final class HomeView: UIView {
             cardsRow.topAnchor.constraint(equalTo: onlineContainer.topAnchor),
             cardsRow.leadingAnchor.constraint(equalTo: onlineContainer.leadingAnchor),
             cardsRow.trailingAnchor.constraint(equalTo: onlineContainer.trailingAnchor),
-            cardsRow.bottomAnchor.constraint(equalTo: onlineInfoBox.topAnchor, constant: -10),
+            cardsRow.bottomAnchor.constraint(equalTo: onlineInfoBox.topAnchor, constant: -8),
 
             onlineInfoBox.leadingAnchor.constraint(equalTo: onlineContainer.leadingAnchor),
             onlineInfoBox.trailingAnchor.constraint(equalTo: onlineContainer.trailingAnchor),
             onlineInfoBox.bottomAnchor.constraint(equalTo: onlineContainer.bottomAnchor),
-            onlineInfoBox.heightAnchor.constraint(equalToConstant: 66),
+            onlineInfoBox.heightAnchor.constraint(equalToConstant: 60),
 
-            onlineInfoLabel.leadingAnchor.constraint(equalTo: onlineInfoBox.leadingAnchor, constant: 12),
-            onlineInfoLabel.trailingAnchor.constraint(equalTo: onlineInfoBox.trailingAnchor, constant: -12),
+            onlineInfoLabel.leadingAnchor.constraint(equalTo: onlineInfoBox.leadingAnchor, constant: 10),
+            onlineInfoLabel.trailingAnchor.constraint(equalTo: onlineInfoBox.trailingAnchor, constant: -10),
             onlineInfoLabel.centerYAnchor.constraint(equalTo: onlineInfoBox.centerYAnchor),
 
             onlineJoinBox.leadingAnchor.constraint(equalTo: onlineInfoBox.leadingAnchor),
@@ -843,7 +897,7 @@ final class HomeView: UIView {
             onlineJoinBox.bottomAnchor.constraint(equalTo: onlineInfoBox.bottomAnchor),
 
             joinStack.leadingAnchor.constraint(equalTo: onlineJoinBox.leadingAnchor, constant: 10),
-            joinStack.trailingAnchor.constraint(equalTo: onlineJoinBox.trailingAnchor, constant: -12),
+            joinStack.trailingAnchor.constraint(equalTo: onlineJoinBox.trailingAnchor, constant: -10),
             joinStack.centerYAnchor.constraint(equalTo: onlineJoinBox.centerYAnchor)
         ])
     }
@@ -857,7 +911,7 @@ final class HomeView: UIView {
         onlineJoinBox.isHidden = (index != 2)
     }
 
-    // MARK: - Soon Store Overlay (سون ستور)
+    // MARK: - Rom.dom Social Overlay
 
     private func setupStoreOverlay() {
         storeOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.58)
@@ -871,8 +925,8 @@ final class HomeView: UIView {
         pin(blur, to: storeOverlay)
 
         let title = UILabel()
-        title.text = "سون ستور - تابعنا على مواقع التواصل"
-        title.font = Theme.display(18, .bold)
+        title.text = "\(Self.brandName) - تابعنا على مواقع التواصل"
+        title.font = Theme.display(17, .bold)
         title.textColor = .white
         title.textAlignment = .center
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -885,9 +939,9 @@ final class HomeView: UIView {
         closeCfg.background.strokeColor = UIColor(white: 1, alpha: 0.35)
         closeCfg.background.strokeWidth = 1
         closeCfg.cornerStyle = .capsule
-        closeCfg.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16)
+        closeCfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14)
         closeCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Theme.body(13, .semibold); return a
+            var a = a; a.font = Theme.body(12.5, .semibold); return a
         }
         let closeBtn = UIButton(configuration: closeCfg)
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -896,7 +950,7 @@ final class HomeView: UIView {
 
         let cardsRow = UIStackView()
         cardsRow.axis = .horizontal
-        cardsRow.spacing = 16
+        cardsRow.spacing = 14
         cardsRow.distribution = .fillEqually
         cardsRow.semanticContentAttribute = .forceLeftToRight
         cardsRow.translatesAutoresizingMaskIntoConstraints = false
@@ -915,7 +969,7 @@ final class HomeView: UIView {
         followCfg.baseBackgroundColor = Self.gold
         followCfg.cornerStyle = .medium
         followCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Theme.display(16, .heavy); return a
+            var a = a; a.font = Theme.display(15, .heavy); return a
         }
         let followBtn = UIButton(configuration: followCfg)
         followBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -931,27 +985,26 @@ final class HomeView: UIView {
 
         let guide = safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            storeOverlay.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            storeOverlay.leadingAnchor.constraint(equalTo: sidebarAnchor.trailingAnchor),
             storeOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
             storeOverlay.topAnchor.constraint(equalTo: topAnchor),
             storeOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            title.topAnchor.constraint(equalTo: guide.topAnchor, constant: 14),
+            title.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
             title.centerXAnchor.constraint(equalTo: storeOverlay.centerXAnchor),
 
             closeBtn.centerYAnchor.constraint(equalTo: title.centerYAnchor),
-            closeBtn.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+            closeBtn.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -14),
 
             cardsRow.centerXAnchor.constraint(equalTo: storeOverlay.centerXAnchor),
-            cardsRow.centerYAnchor.constraint(equalTo: storeOverlay.centerYAnchor, constant: -14),
-            cardsRow.widthAnchor.constraint(lessThanOrEqualTo: storeOverlay.widthAnchor, multiplier: 0.78),
-            cardsRow.widthAnchor.constraint(greaterThanOrEqualToConstant: 420),
-            cardsRow.heightAnchor.constraint(equalToConstant: 184),
+            cardsRow.centerYAnchor.constraint(equalTo: storeOverlay.centerYAnchor, constant: -12),
+            cardsRow.widthAnchor.constraint(equalTo: storeOverlay.widthAnchor, multiplier: 0.74),
+            cardsRow.heightAnchor.constraint(equalTo: storeOverlay.heightAnchor, multiplier: 0.50),
 
-            followBtn.topAnchor.constraint(equalTo: cardsRow.bottomAnchor, constant: 14),
+            followBtn.topAnchor.constraint(equalTo: cardsRow.bottomAnchor, constant: 12),
             followBtn.centerXAnchor.constraint(equalTo: storeOverlay.centerXAnchor),
-            followBtn.widthAnchor.constraint(equalToConstant: 210),
-            followBtn.heightAnchor.constraint(equalToConstant: 44)
+            followBtn.widthAnchor.constraint(equalToConstant: 195),
+            followBtn.heightAnchor.constraint(equalToConstant: 40)
         ])
     }
 
@@ -959,6 +1012,7 @@ final class HomeView: UIView {
         storeOverlay.isHidden = !visible
         if visible {
             bringSubviewToFront(storeOverlay)
+            bringSubviewToFront(sidebarDimmer)
             bringSubviewToFront(sidebar)
             bringSubviewToFront(toastBanner)
         }
@@ -980,11 +1034,11 @@ final class HomeView: UIView {
 
         let title = UILabel()
         title.text = "مدير المودات والإضافات (Mods)"
-        title.font = Theme.display(20, .bold)
+        title.font = Theme.display(18, .bold)
         title.textColor = Theme.text
         title.textAlignment = .right
 
-        modsSummaryLabel.font = Theme.body(14)
+        modsSummaryLabel.font = Theme.body(13)
         modsSummaryLabel.textColor = Theme.secondaryText
         modsSummaryLabel.textAlignment = .right
         modsSummaryLabel.numberOfLines = 2
@@ -1006,7 +1060,7 @@ final class HomeView: UIView {
 
         let stack = UIStackView(arrangedSubviews: [title, modsSummaryLabel, btns, modsListStack, UIView()])
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
         card.contentView.addSubview(stack)
 
@@ -1016,10 +1070,10 @@ final class HomeView: UIView {
             card.trailingAnchor.constraint(equalTo: modsPage.trailingAnchor),
             card.bottomAnchor.constraint(equalTo: modsPage.bottomAnchor),
 
-            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 18),
-            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
-            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -18),
-            stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -18)
+            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16)
         ])
     }
 
@@ -1033,7 +1087,7 @@ final class HomeView: UIView {
         modsListStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for mod in installed.prefix(5) {
             let row = UILabel()
-            row.font = Theme.body(13, .medium)
+            row.font = Theme.body(12.5, .medium)
             row.textAlignment = .right
             row.textColor = mod.enabled ? Theme.ok : Theme.tertiaryText
             row.text = (mod.enabled ? "● مفعّل: " : "○ متوقف: ") + mod.name
@@ -1046,38 +1100,38 @@ final class HomeView: UIView {
     private func buildDataPage(log: UIView) {
         let leftCol = UIStackView()
         leftCol.axis = .vertical
-        leftCol.spacing = 10
+        leftCol.spacing = 8
         leftCol.translatesAutoresizingMaskIntoConstraints = false
 
         let specsPanel = Theme.panel(cornerRadius: 12)
-        deviceSpecsLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        deviceSpecsLabel.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
         deviceSpecsLabel.textColor = Theme.text
         deviceSpecsLabel.textAlignment = .right
         deviceSpecsLabel.numberOfLines = 0
         deviceSpecsLabel.translatesAutoresizingMaskIntoConstraints = false
         specsPanel.contentView.addSubview(deviceSpecsLabel)
         NSLayoutConstraint.activate([
-            deviceSpecsLabel.topAnchor.constraint(equalTo: specsPanel.contentView.topAnchor, constant: 10),
-            deviceSpecsLabel.bottomAnchor.constraint(equalTo: specsPanel.contentView.bottomAnchor, constant: -10),
-            deviceSpecsLabel.leadingAnchor.constraint(equalTo: specsPanel.contentView.leadingAnchor, constant: 12),
-            deviceSpecsLabel.trailingAnchor.constraint(equalTo: specsPanel.contentView.trailingAnchor, constant: -12)
+            deviceSpecsLabel.topAnchor.constraint(equalTo: specsPanel.contentView.topAnchor, constant: 8),
+            deviceSpecsLabel.bottomAnchor.constraint(equalTo: specsPanel.contentView.bottomAnchor, constant: -8),
+            deviceSpecsLabel.leadingAnchor.constraint(equalTo: specsPanel.contentView.leadingAnchor, constant: 10),
+            deviceSpecsLabel.trailingAnchor.constraint(equalTo: specsPanel.contentView.trailingAnchor, constant: -10)
         ])
 
         let slotsTitle = UILabel()
         slotsTitle.text = "خانات الحفظ السريع (16 خانة)"
-        slotsTitle.font = Theme.body(13, .bold)
+        slotsTitle.font = Theme.body(12.5, .bold)
         slotsTitle.textColor = Self.gold
         slotsTitle.textAlignment = .right
 
         let grid = UIStackView()
         grid.axis = .vertical
-        grid.spacing = 6
+        grid.spacing = 5
         grid.distribution = .fillEqually
 
         for row in 0..<4 {
             let hRow = UIStackView()
             hRow.axis = .horizontal
-            hRow.spacing = 6
+            hRow.spacing = 5
             hRow.distribution = .fillEqually
             for col in 0..<4 {
                 let slotNum = row * 4 + col + 1
@@ -1087,7 +1141,7 @@ final class HomeView: UIView {
                 cfg.baseForegroundColor = Theme.text
                 cfg.baseBackgroundColor = UIColor(white: 1, alpha: 0.08)
                 cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-                    var a = a; a.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold); return a
+                    var a = a; a.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold); return a
                 }
                 let btn = UIButton(configuration: cfg)
                 btn.addAction(UIAction { [weak self] _ in self?.selectSaveSlot(slotNum) }, for: .touchUpInside)
@@ -1114,7 +1168,7 @@ final class HomeView: UIView {
             leftCol.bottomAnchor.constraint(equalTo: dataPage.bottomAnchor),
             leftCol.widthAnchor.constraint(equalTo: dataPage.widthAnchor, multiplier: 0.52),
 
-            log.leadingAnchor.constraint(equalTo: leftCol.trailingAnchor, constant: 12),
+            log.leadingAnchor.constraint(equalTo: leftCol.trailingAnchor, constant: 10),
             log.trailingAnchor.constraint(equalTo: dataPage.trailingAnchor),
             log.topAnchor.constraint(equalTo: dataPage.topAnchor),
             log.bottomAnchor.constraint(equalTo: dataPage.bottomAnchor)
@@ -1151,15 +1205,15 @@ final class HomeView: UIView {
 
         let title = UILabel()
         title.text = "إعدادات اللانشر واللعبة"
-        title.font = Theme.display(20, .bold)
+        title.font = Theme.display(18, .bold)
         title.textColor = Theme.text
         title.textAlignment = .right
 
-        settingsLangLabel.font = Theme.body(14, .medium)
+        settingsLangLabel.font = Theme.body(13.5, .medium)
         settingsLangLabel.textColor = Theme.secondaryText
         settingsLangLabel.textAlignment = .right
 
-        settingsPerfLabel.font = Theme.body(14, .medium)
+        settingsPerfLabel.font = Theme.body(13.5, .medium)
         settingsPerfLabel.textColor = Theme.secondaryText
         settingsPerfLabel.textAlignment = .right
 
@@ -1192,10 +1246,10 @@ final class HomeView: UIView {
             card.trailingAnchor.constraint(equalTo: settingsPage.trailingAnchor),
             card.bottomAnchor.constraint(equalTo: settingsPage.bottomAnchor),
 
-            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 18),
-            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
-            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -18),
-            stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -18)
+            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16)
         ])
     }
 
@@ -1214,6 +1268,7 @@ final class HomeView: UIView {
         toastBanner.layer.borderColor = Self.gold.withAlphaComponent(0.65).cgColor
         toastBanner.alpha = 0
         toastBanner.isUserInteractionEnabled = false
+        toastBanner.semanticContentAttribute = .forceLeftToRight
         toastBanner.translatesAutoresizingMaskIntoConstraints = false
 
         let badge = UILabel()
@@ -1227,12 +1282,13 @@ final class HomeView: UIView {
         badge.widthAnchor.constraint(equalToConstant: 20).isActive = true
         badge.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
-        toastLabel.font = Theme.body(12, .semibold)
+        toastLabel.font = Theme.body(11.5, .semibold)
         toastLabel.textColor = .white
 
         let row = UIStackView(arrangedSubviews: [badge, toastLabel])
         row.spacing = 8
         row.alignment = .center
+        row.semanticContentAttribute = .forceLeftToRight
         row.translatesAutoresizingMaskIntoConstraints = false
         toastBanner.addSubview(row)
         addSubview(toastBanner)
@@ -1240,11 +1296,11 @@ final class HomeView: UIView {
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: toastBanner.leadingAnchor, constant: 10),
             row.trailingAnchor.constraint(equalTo: toastBanner.trailingAnchor, constant: -12),
-            row.topAnchor.constraint(equalTo: toastBanner.topAnchor, constant: 6),
-            row.bottomAnchor.constraint(equalTo: toastBanner.bottomAnchor, constant: -6),
+            row.topAnchor.constraint(equalTo: toastBanner.topAnchor, constant: 5),
+            row.bottomAnchor.constraint(equalTo: toastBanner.bottomAnchor, constant: -5),
 
-            toastBanner.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 32),
-            toastBanner.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -12)
+            toastBanner.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 30),
+            toastBanner.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 6)
         ])
     }
 
@@ -1257,7 +1313,7 @@ final class HomeView: UIView {
             UIView.animate(withDuration: 0.35) { self?.toastBanner.alpha = 0 }
         }
         toastHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: work)
     }
 
     private func promptEditPlayerName() {
@@ -1344,19 +1400,19 @@ final class HomeView: UIView {
     private static func makeRockstarPlayButton() -> UIButton {
         var cfg = UIButton.Configuration.filled()
         cfg.title = "تشغيل اللعبة"
-        cfg.image = UIImage(systemName: "play.fill", withConfiguration: UIImage.SymbolConfiguration(weight: .heavy))
+        cfg.image = UIImage(systemName: "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .heavy))
         cfg.imagePlacement = .trailing
-        cfg.imagePadding = 10
+        cfg.imagePadding = 8
         cfg.cornerStyle = .fixed
         cfg.background.cornerRadius = 7
         cfg.baseForegroundColor = UIColor(red: 0.08, green: 0.05, blue: 0.01, alpha: 1)
         cfg.background.backgroundColor = UIColor(white: 0.96, alpha: 1)
 
         let button = UIButton(configuration: cfg)
+        button.semanticContentAttribute = .forceLeftToRight
         button.clipsToBounds = true
         button.layer.cornerRadius = 7
 
-        // Signature Rockstar bottom golden accent strip
         let bottomStrip = UIView()
         bottomStrip.backgroundColor = gold
         bottomStrip.isUserInteractionEnabled = false
@@ -1382,7 +1438,7 @@ final class HomeView: UIView {
     private static func makeWhiteActionButton(title: String, symbol: String) -> UIButton {
         var cfg = UIButton.Configuration.filled()
         cfg.title = title
-        cfg.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold))
+        cfg.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .bold))
         cfg.imagePlacement = .trailing
         cfg.imagePadding = 8
         cfg.cornerStyle = .fixed
@@ -1390,9 +1446,10 @@ final class HomeView: UIView {
         cfg.baseForegroundColor = .black
         cfg.background.backgroundColor = UIColor(white: 0.96, alpha: 1)
         cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Theme.display(17, .heavy); return a
+            var a = a; a.font = Theme.display(16, .heavy); return a
         }
         let btn = UIButton(configuration: cfg)
+        btn.semanticContentAttribute = .forceLeftToRight
         btn.clipsToBounds = true
         btn.layer.cornerRadius = 7
 
@@ -1457,34 +1514,34 @@ private final class LauncherSidebarItem: UIControl {
 
         iconView.image = Self.makeIcon(for: kind)
         iconView.contentMode = .scaleAspectFit
-        iconView.layer.cornerRadius = (kind == .store) ? 16 : 6
+        iconView.layer.cornerRadius = (kind == .store) ? 15 : 6
         iconView.clipsToBounds = true
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
         titleLabel.text = title
-        titleLabel.font = Theme.body(13, .bold)
+        titleLabel.font = Theme.body(12.5, .bold)
         titleLabel.textColor = .white
-        titleLabel.textAlignment = .right
+        titleLabel.textAlignment = .left
         titleLabel.isHidden = true
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 40),
+            heightAnchor.constraint(equalToConstant: 38),
 
             indicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             indicator.centerYAnchor.constraint(equalTo: centerYAnchor),
             indicator.widthAnchor.constraint(equalToConstant: 3),
-            indicator.heightAnchor.constraint(equalToConstant: 24),
+            indicator.heightAnchor.constraint(equalToConstant: 22),
 
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 17),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 32),
-            iconView.heightAnchor.constraint(equalToConstant: 32),
+            iconView.widthAnchor.constraint(equalToConstant: 30),
+            iconView.heightAnchor.constraint(equalToConstant: 30),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
         update()
@@ -1503,7 +1560,7 @@ private final class LauncherSidebarItem: UIControl {
         indicator.isHidden = !isSelected
         indicator.backgroundColor = accentColor
         iconView.alpha = isSelected ? 1.0 : 0.72
-        titleLabel.textColor = isSelected ? .white : UIColor(white: 1, alpha: 0.75)
+        titleLabel.textColor = isSelected ? .white : UIColor(white: 1, alpha: 0.78)
     }
 
     static func makeIcon(for kind: IconKind) -> UIImage {
@@ -1553,7 +1610,7 @@ private final class LauncherSidebarItem: UIControl {
                 let ring = UIBezierPath(ovalIn: rect.insetBy(dx: 4, dy: 4))
                 ring.lineWidth = 4
                 ring.stroke()
-                drawCenteredText("S", in: rect, font: .systemFont(ofSize: 32, weight: .black), color: .black)
+                drawCenteredText("R", in: rect, font: .systemFont(ofSize: 32, weight: .black), color: .black)
             }
         }
     }
@@ -1577,14 +1634,16 @@ private final class GameLogoBadgeView: UIView {
     private let bgRomanLabel = UILabel()
     private let gtaStackLabel = UILabel()
     private let badgePill = UILabel()
-    private let viGradientLayer = CAGradientLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        semanticContentAttribute = .forceLeftToRight
+
         customImageView.contentMode = .scaleAspectFit
         customImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(customImageView)
 
+        fallbackContainer.semanticContentAttribute = .forceLeftToRight
         fallbackContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(fallbackContainer)
 
@@ -1614,15 +1673,15 @@ private final class GameLogoBadgeView: UIView {
             fallbackContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             bgRomanLabel.centerXAnchor.constraint(equalTo: fallbackContainer.centerXAnchor),
-            bgRomanLabel.centerYAnchor.constraint(equalTo: fallbackContainer.centerYAnchor, constant: -4),
+            bgRomanLabel.centerYAnchor.constraint(equalTo: fallbackContainer.centerYAnchor, constant: -2),
 
             gtaStackLabel.centerXAnchor.constraint(equalTo: fallbackContainer.centerXAnchor),
-            gtaStackLabel.topAnchor.constraint(equalTo: fallbackContainer.topAnchor, constant: 6),
+            gtaStackLabel.topAnchor.constraint(equalTo: fallbackContainer.topAnchor, constant: 4),
             gtaStackLabel.leadingAnchor.constraint(equalTo: fallbackContainer.leadingAnchor),
             gtaStackLabel.trailingAnchor.constraint(equalTo: fallbackContainer.trailingAnchor),
 
             badgePill.centerXAnchor.constraint(equalTo: fallbackContainer.centerXAnchor),
-            badgePill.bottomAnchor.constraint(equalTo: fallbackContainer.bottomAnchor, constant: -4)
+            badgePill.bottomAnchor.constraint(equalTo: fallbackContainer.bottomAnchor, constant: -2)
         ])
     }
 
@@ -1641,9 +1700,9 @@ private final class GameLogoBadgeView: UIView {
 
         let style = NSMutableParagraphStyle()
         style.alignment = .center
-        style.maximumLineHeight = 36
+        style.maximumLineHeight = 32
         let gtaAttr = NSAttributedString(string: "grand\ntheft\nauto", attributes: [
-            .font: UIFont.systemFont(ofSize: 38, weight: .black),
+            .font: UIFont.systemFont(ofSize: 34, weight: .black),
             .foregroundColor: UIColor.white,
             .strokeColor: UIColor.black,
             .strokeWidth: -5.0,
@@ -1656,7 +1715,7 @@ private final class GameLogoBadgeView: UIView {
             bgRomanLabel.isHidden = true
             badgePill.isHidden = false
             badgePill.text = "  FIVE  "
-            badgePill.font = .systemFont(ofSize: 20, weight: .black)
+            badgePill.font = .systemFont(ofSize: 18, weight: .black)
             badgePill.textColor = .white
             badgePill.backgroundColor = UIColor(red: 0.24, green: 0.56, blue: 0.24, alpha: 1)
             badgePill.layer.cornerRadius = 5
@@ -1666,7 +1725,7 @@ private final class GameLogoBadgeView: UIView {
             bgRomanLabel.isHidden = true
             badgePill.isHidden = false
             badgePill.text = "  ONLINE  "
-            badgePill.font = .systemFont(ofSize: 22, weight: .black)
+            badgePill.font = .systemFont(ofSize: 19, weight: .black)
             badgePill.textColor = .white
             badgePill.backgroundColor = UIColor(red: 0.86, green: 0.12, blue: 0.14, alpha: 1)
             badgePill.layer.cornerRadius = 5
@@ -1676,7 +1735,7 @@ private final class GameLogoBadgeView: UIView {
             bgRomanLabel.isHidden = false
             badgePill.isHidden = true
             bgRomanLabel.attributedText = NSAttributedString(string: "VI", attributes: [
-                .font: UIFont.systemFont(ofSize: 130, weight: .black),
+                .font: UIFont.systemFont(ofSize: 112, weight: .black),
                 .foregroundColor: UIColor(red: 0.91, green: 0.29, blue: 0.56, alpha: 0.92),
                 .strokeColor: UIColor(red: 0.98, green: 0.65, blue: 0.26, alpha: 1),
                 .strokeWidth: -3.0
@@ -1709,6 +1768,7 @@ private final class LauncherPerfCard: UIControl {
         self.paletteIndex = paletteIndex
         super.init(frame: .zero)
 
+        semanticContentAttribute = .forceLeftToRight
         clipsToBounds = true
         layer.cornerRadius = 3
         layer.borderWidth = 1.5
@@ -1728,7 +1788,7 @@ private final class LauncherPerfCard: UIControl {
 
         // Active badge (top-left)
         activeBadge.text = "  نشط  "
-        activeBadge.font = Theme.body(11, .bold)
+        activeBadge.font = Theme.body(10.5, .bold)
         activeBadge.layer.cornerRadius = 2
         activeBadge.clipsToBounds = true
         activeBadge.isHidden = true
@@ -1737,7 +1797,7 @@ private final class LauncherPerfCard: UIControl {
 
         // Recommended badge (top-right)
         recBadge.text = "  موصى به  "
-        recBadge.font = Theme.body(11, .bold)
+        recBadge.font = Theme.body(10.5, .bold)
         recBadge.textColor = .black
         recBadge.backgroundColor = .white
         recBadge.layer.cornerRadius = 2
@@ -1746,24 +1806,27 @@ private final class LauncherPerfCard: UIControl {
         recBadge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(recBadge)
 
-        // Big FPS / YOUR SETTINGS typography
+        // Big FPS / YOUR SETTINGS typography (strictly LTR so "24 FPS" never flips to "FPS 24")
         let isCustom = (bigText == "YOUR")
         bigLabel.text = bigText
-        bigLabel.font = isCustom ? Theme.display(26, .heavy) : .systemFont(ofSize: 48, weight: .light)
+        bigLabel.font = isCustom ? Theme.display(23, .heavy) : .systemFont(ofSize: 42, weight: .light)
         bigLabel.textColor = .white
+        bigLabel.semanticContentAttribute = .forceLeftToRight
         bigLabel.layer.shadowColor = UIColor.black.cgColor
         bigLabel.layer.shadowOpacity = 0.7
         bigLabel.layer.shadowRadius = 4
         bigLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
 
         unitLabel.text = unitText
-        unitLabel.font = isCustom ? Theme.display(22, .heavy) : .systemFont(ofSize: 15, weight: .bold)
+        unitLabel.font = isCustom ? Theme.display(19, .heavy) : .systemFont(ofSize: 13.5, weight: .bold)
         unitLabel.textColor = .white
+        unitLabel.semanticContentAttribute = .forceLeftToRight
 
         let metricStack = UIStackView(arrangedSubviews: [bigLabel, unitLabel])
         metricStack.axis = isCustom ? .vertical : .horizontal
         metricStack.alignment = isCustom ? .leading : .lastBaseline
         metricStack.spacing = isCustom ? 0 : 4
+        metricStack.semanticContentAttribute = .forceLeftToRight
         metricStack.isUserInteractionEnabled = false
         metricStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(metricStack)
@@ -1775,11 +1838,11 @@ private final class LauncherPerfCard: UIControl {
         addSubview(captionBar)
 
         captionLabel.text = caption
-        captionLabel.font = Theme.body(11, .semibold)
+        captionLabel.font = Theme.body(10.5, .semibold)
         captionLabel.textColor = UIColor(white: 1, alpha: 0.92)
         captionLabel.textAlignment = .center
         captionLabel.adjustsFontSizeToFitWidth = true
-        captionLabel.minimumScaleFactor = 0.72
+        captionLabel.minimumScaleFactor = 0.70
         captionLabel.translatesAutoresizingMaskIntoConstraints = false
         captionBar.addSubview(captionLabel)
 
@@ -1789,25 +1852,25 @@ private final class LauncherPerfCard: UIControl {
             bgImage.topAnchor.constraint(equalTo: topAnchor),
             bgImage.bottomAnchor.constraint(equalTo: captionBar.topAnchor),
 
-            activeBadge.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            activeBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            activeBadge.heightAnchor.constraint(equalToConstant: 20),
+            activeBadge.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            activeBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7),
+            activeBadge.heightAnchor.constraint(equalToConstant: 19),
 
-            recBadge.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            recBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            recBadge.heightAnchor.constraint(equalToConstant: 20),
+            recBadge.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            recBadge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            recBadge.heightAnchor.constraint(equalToConstant: 19),
 
             captionBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             captionBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             captionBar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            captionBar.heightAnchor.constraint(equalToConstant: 32),
+            captionBar.heightAnchor.constraint(equalToConstant: 30),
 
             captionLabel.leadingAnchor.constraint(equalTo: captionBar.leadingAnchor, constant: 6),
             captionLabel.trailingAnchor.constraint(equalTo: captionBar.trailingAnchor, constant: -6),
             captionLabel.centerYAnchor.constraint(equalTo: captionBar.centerYAnchor),
 
             metricStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            metricStack.bottomAnchor.constraint(equalTo: captionBar.topAnchor, constant: -8)
+            metricStack.bottomAnchor.constraint(equalTo: captionBar.topAnchor, constant: -6)
         ])
 
         setTheme(isGTAVI: false, index: paletteIndex)
@@ -1818,7 +1881,7 @@ private final class LauncherPerfCard: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         artGradient.frame = bounds
-        bottomShade.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 32))
+        bottomShade.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 30))
     }
 
     func setTheme(isGTAVI: Bool, index: Int) {
@@ -1874,6 +1937,7 @@ private final class OnlineModeCard: UIControl {
 
     init(caption: String, assetName: String, palette: Int) {
         super.init(frame: .zero)
+        semanticContentAttribute = .forceLeftToRight
         clipsToBounds = true
         layer.cornerRadius = 3
         layer.borderWidth = 1.5
@@ -1896,7 +1960,7 @@ private final class OnlineModeCard: UIControl {
         addSubview(bgImage)
 
         selectedBadge.text = "  محدد  "
-        selectedBadge.font = Theme.body(11, .bold)
+        selectedBadge.font = Theme.body(10.5, .bold)
         selectedBadge.textColor = .black
         selectedBadge.backgroundColor = UIColor(red: 0.97, green: 0.67, blue: 0.10, alpha: 1)
         selectedBadge.layer.cornerRadius = 2
@@ -1911,11 +1975,11 @@ private final class OnlineModeCard: UIControl {
         addSubview(captionBar)
 
         captionLabel.text = caption
-        captionLabel.font = Theme.body(11, .bold)
+        captionLabel.font = Theme.body(10.5, .bold)
         captionLabel.textColor = .white
         captionLabel.textAlignment = .center
         captionLabel.adjustsFontSizeToFitWidth = true
-        captionLabel.minimumScaleFactor = 0.72
+        captionLabel.minimumScaleFactor = 0.70
         captionLabel.translatesAutoresizingMaskIntoConstraints = false
         captionBar.addSubview(captionLabel)
 
@@ -1925,14 +1989,14 @@ private final class OnlineModeCard: UIControl {
             bgImage.topAnchor.constraint(equalTo: topAnchor),
             bgImage.bottomAnchor.constraint(equalTo: captionBar.topAnchor),
 
-            selectedBadge.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            selectedBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            selectedBadge.heightAnchor.constraint(equalToConstant: 20),
+            selectedBadge.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            selectedBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7),
+            selectedBadge.heightAnchor.constraint(equalToConstant: 19),
 
             captionBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             captionBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             captionBar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            captionBar.heightAnchor.constraint(equalToConstant: 30),
+            captionBar.heightAnchor.constraint(equalToConstant: 28),
 
             captionLabel.leadingAnchor.constraint(equalTo: captionBar.leadingAnchor, constant: 6),
             captionLabel.trailingAnchor.constraint(equalTo: captionBar.trailingAnchor, constant: -6),
@@ -1958,7 +2022,7 @@ private final class OnlineModeCard: UIControl {
     }
 }
 
-// MARK: - Soon Store Social Card
+// MARK: - Rom.dom Social Card
 
 private final class SocialCard: UIControl {
     enum Kind { case telegram, instagram, tiktok }
@@ -1984,7 +2048,7 @@ private final class SocialCard: UIControl {
                 UIColor(red: 0.07, green: 0.45, blue: 0.78, alpha: 1).cgColor,
                 UIColor(red: 0.04, green: 0.18, blue: 0.36, alpha: 1).cgColor
             ]
-            iconView.image = UIImage(systemName: "paperplane.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 72, weight: .regular))
+            iconView.image = UIImage(systemName: "paperplane.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 66, weight: .regular))
             iconView.tintColor = UIColor(red: 0.34, green: 0.78, blue: 1.0, alpha: 1)
         case .instagram:
             gradient.colors = [
@@ -1992,14 +2056,14 @@ private final class SocialCard: UIControl {
                 UIColor(red: 0.66, green: 0.14, blue: 0.42, alpha: 1).cgColor,
                 UIColor(red: 0.38, green: 0.12, blue: 0.24, alpha: 1).cgColor
             ]
-            iconView.image = UIImage(systemName: "camera.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 72, weight: .light))
+            iconView.image = UIImage(systemName: "camera.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 66, weight: .light))
             iconView.tintColor = .white
         case .tiktok:
             gradient.colors = [
                 UIColor(red: 0.10, green: 0.11, blue: 0.14, alpha: 1).cgColor,
                 UIColor(red: 0.06, green: 0.06, blue: 0.08, alpha: 1).cgColor
             ]
-            iconView.image = UIImage(systemName: "music.note", withConfiguration: UIImage.SymbolConfiguration(pointSize: 66, weight: .bold))
+            iconView.image = UIImage(systemName: "music.note", withConfiguration: UIImage.SymbolConfiguration(pointSize: 60, weight: .bold))
             iconView.tintColor = UIColor(red: 0.25, green: 0.92, blue: 0.90, alpha: 1)
         }
         gradient.startPoint = CGPoint(x: 0.2, y: 0)
@@ -2011,9 +2075,11 @@ private final class SocialCard: UIControl {
         box.addSubview(iconView)
 
         titleLabel.text = title
-        titleLabel.font = Theme.body(14, .bold)
+        titleLabel.font = Theme.body(13.5, .bold)
         titleLabel.textColor = .white
         titleLabel.textAlignment = .center
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.minimumScaleFactor = 0.8
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
@@ -2021,17 +2087,17 @@ private final class SocialCard: UIControl {
             box.topAnchor.constraint(equalTo: topAnchor),
             box.leadingAnchor.constraint(equalTo: leadingAnchor),
             box.trailingAnchor.constraint(equalTo: trailingAnchor),
-            box.bottomAnchor.constraint(equalTo: titleLabel.topAnchor, constant: -8),
+            box.bottomAnchor.constraint(equalTo: titleLabel.topAnchor, constant: -6),
 
             iconView.centerXAnchor.constraint(equalTo: box.centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 82),
-            iconView.heightAnchor.constraint(equalToConstant: 82),
+            iconView.widthAnchor.constraint(equalToConstant: 74),
+            iconView.heightAnchor.constraint(equalToConstant: 74),
 
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
             titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
-            titleLabel.heightAnchor.constraint(equalToConstant: 22)
+            titleLabel.heightAnchor.constraint(equalToConstant: 20)
         ])
         update()
     }
