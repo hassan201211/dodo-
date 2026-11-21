@@ -1,10 +1,10 @@
 import UIKit
 
 /// Rockstar Games Launcher / Rom.dom styled start screen:
-/// - Adaptive layout supporting all iPhone sizes from iPhone 7 (667x375) to latest Pro Max & iPad
+/// - Safe, crash-free Auto Layout across all iPhone screen sizes (iPhone 7 to latest Pro Max & iPad)
 /// - Collapsible left black sidebar (GTA V, GTA Online, GTA VI, Rom.dom)
-/// - Top navigation tabs (الألعاب، المودات، البيانات وملفات الحفظ، الإعدادات) with zero overlap
-/// - GTA V & GTA VI horizontal scrollable performance preset cards (24 FPS, 30 FPS, 60 FPS, 720p, YOUR SETTINGS)
+/// - Top navigation tabs (الألعاب، المودات، البيانات وملفات الحفظ، الإعدادات)
+/// - GTA V & GTA VI horizontal performance preset cards (24 FPS, 30 FPS, 60 FPS, 720p, YOUR SETTINGS)
 /// - GTA Online 3-mode cards (تجول حر، استضافة، الانضمام إلى جلسة لعب) + session invite controls
 /// - Rom.dom social overlay (تيليجرام، انستغرام، تيك توك)
 final class HomeView: UIView {
@@ -43,14 +43,11 @@ final class HomeView: UIView {
     private static let brandName = "Rom.dom"
     private static let gold = UIColor(red: 0.97, green: 0.67, blue: 0.10, alpha: 1)
     private static let vicePink = UIColor(red: 0.91, green: 0.29, blue: 0.56, alpha: 1)
-    private static let viceOrange = UIColor(red: 0.98, green: 0.57, blue: 0.27, alpha: 1)
-    private static let onlineRed = UIColor(red: 0.89, green: 0.14, blue: 0.16, alpha: 1)
 
-    // Edit your Rom.dom links here anytime
     private let socialItems: [(title: String, url: String, kind: SocialCard.Kind)] = [
-        ("تيليجرام Rom.dom", "https://t.me/fivestarport", .telegram),
-        ("انستغرام Rom.dom", "https://instagram.com", .instagram),
-        ("تيك توك Rom.dom", "https://tiktok.com", .tiktok)
+        ("تيليجرام \(HomeView.brandName)", "https://t.me/fivestarport", .telegram),
+        ("انستغرام \(HomeView.brandName)", "https://instagram.com", .instagram),
+        ("تيك توك \(HomeView.brandName)", "https://tiktok.com", .tiktok)
     ]
 
     // MARK: - Sidebar
@@ -83,7 +80,7 @@ final class HomeView: UIView {
     private let settingsPage = UIView()
     private let storeOverlay = UIView()
 
-    // MARK: - Games Page (Left Hero + Right Carousel / Online)
+    // MARK: - Games Page
 
     private let heroLogoView = GameLogoBadgeView()
     private let installGTAVIButton = HomeView.makeWhiteActionButton(title: "تثبيت", symbol: "arrow.down.circle.fill")
@@ -170,7 +167,7 @@ final class HomeView: UIView {
         }
     }
 
-    // MARK: - Sidebar Anchor & Overlay (Prevents clipping on iPhone 7 -> Pro Max)
+    // MARK: - Sidebar Anchor & Overlay
 
     private func setupSidebarAnchor() {
         sidebarAnchor.isUserInteractionEnabled = false
@@ -217,7 +214,6 @@ final class HomeView: UIView {
             sidebarWidthConstraint
         ])
 
-        // Rockstar R★ Badge
         let rBadge = UILabel()
         rBadge.text = "R★"
         rBadge.font = Theme.display(16, .black)
@@ -281,7 +277,7 @@ final class HomeView: UIView {
             rBadge.widthAnchor.constraint(equalToConstant: 32),
             rBadge.heightAnchor.constraint(equalToConstant: 32),
 
-            navStack.topAnchor.constraint(equalTo: rBadge.bottomAnchor, constant: 22),
+            navStack.topAnchor.constraint(equalTo: rBadge.bottomAnchor, constant: 20),
             navStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
             navStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
 
@@ -290,7 +286,7 @@ final class HomeView: UIView {
             toggleBtn.widthAnchor.constraint(equalToConstant: 30),
             toggleBtn.heightAnchor.constraint(equalToConstant: 30),
 
-            sidebarFooterLabel.bottomAnchor.constraint(equalTo: toggleBtn.topAnchor, constant: -14),
+            sidebarFooterLabel.bottomAnchor.constraint(equalTo: toggleBtn.topAnchor, constant: -12),
             sidebarFooterLabel.centerXAnchor.constraint(equalTo: sidebar.centerXAnchor)
         ])
     }
@@ -363,14 +359,13 @@ final class HomeView: UIView {
         }
     }
 
-    // MARK: - Top Navigation Bar (Zero overlap on iPhone 7 -> Pro Max)
+    // MARK: - Top Navigation Bar
 
     private func setupTopBar() {
         topBar.semanticContentAttribute = .forceLeftToRight
         topBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topBar)
 
-        // Compact files status pill on the far left of topBar
         filesPill.backgroundColor = UIColor.black.withAlphaComponent(0.50)
         filesPill.layer.cornerRadius = 12
         filesPill.layer.borderWidth = 1
@@ -411,11 +406,10 @@ final class HomeView: UIView {
             pillRow.trailingAnchor.constraint(equalTo: filesPill.trailingAnchor, constant: -8),
             pillRow.topAnchor.constraint(equalTo: filesPill.topAnchor, constant: 4),
             pillRow.bottomAnchor.constraint(equalTo: filesPill.bottomAnchor, constant: -4),
-            filesPill.widthAnchor.constraint(lessThanOrEqualToConstant: 125)
+            filesPill.widthAnchor.constraint(lessThanOrEqualToConstant: 120)
         ])
         topBar.addSubview(filesPill)
 
-        // Top Navigation Tabs: الألعاب   المودات   البيانات وملفات الحفظ   الإعدادات
         let tabTitles = ["الألعاب", "المودات", "البيانات وملفات الحفظ", "الإعدادات"]
         let tabsStack = UIStackView()
         tabsStack.axis = .horizontal
@@ -436,7 +430,7 @@ final class HomeView: UIView {
             }
             let btn = UIButton(configuration: cfg)
             btn.titleLabel?.adjustsFontSizeToFitWidth = true
-            btn.titleLabel?.minimumScaleFactor = 0.78
+            btn.titleLabel?.minimumScaleFactor = 0.75
             btn.setContentCompressionResistancePriority(.required, for: .horizontal)
             btn.addAction(UIAction { [weak self] _ in
                 self?.showStoreOverlay(false)
@@ -469,8 +463,8 @@ final class HomeView: UIView {
             topGameAvatar.widthAnchor.constraint(equalToConstant: 32),
             topGameAvatar.heightAnchor.constraint(equalToConstant: 32),
 
-            tabsStack.leadingAnchor.constraint(greaterThanOrEqualTo: filesPill.trailingAnchor, constant: 10),
-            tabsStack.trailingAnchor.constraint(equalTo: topGameAvatar.leadingAnchor, constant: -14),
+            tabsStack.leadingAnchor.constraint(greaterThanOrEqualTo: filesPill.trailingAnchor, constant: 8),
+            tabsStack.trailingAnchor.constraint(equalTo: topGameAvatar.leadingAnchor, constant: -12),
             tabsStack.centerYAnchor.constraint(equalTo: topBar.centerYAnchor)
         ])
     }
@@ -512,7 +506,7 @@ final class HomeView: UIView {
         buildSettingsPage()
     }
 
-    // MARK: - Games Page (Responsive from iPhone 7 to Pro Max)
+    // MARK: - Games Page
 
     private func buildGamesPage() {
         let heroCol = UIView()
@@ -535,7 +529,6 @@ final class HomeView: UIView {
         }, for: .touchUpInside)
         heroCol.addSubview(installGTAVIButton)
 
-        // GTA V Benchmark Link
         var benchCfg = UIButton.Configuration.plain()
         benchCfg.title = "بدء اختبار الأداء"
         benchCfg.image = UIImage(systemName: "chart.bar.doc.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
@@ -553,7 +546,6 @@ final class HomeView: UIView {
         }, for: .touchUpInside)
         heroCol.addSubview(benchmarkButton)
 
-        // GTA Online Player Info
         onlinePlayerLabel.text = "اللعب بشخصية: \(playerName)"
         onlinePlayerLabel.font = Theme.body(11.5, .semibold)
         onlinePlayerLabel.textColor = UIColor(white: 1, alpha: 0.85)
@@ -579,7 +571,6 @@ final class HomeView: UIView {
         onlineMetaStack.translatesAutoresizingMaskIntoConstraints = false
         heroCol.addSubview(onlineMetaStack)
 
-        // GTA VI Beta Badge
         let devLbl = UILabel()
         devLbl.text = "قيد التطوير"
         devLbl.font = Theme.body(11.5, .semibold)
@@ -631,7 +622,7 @@ final class HomeView: UIView {
             heroLogoView.centerXAnchor.constraint(equalTo: heroCol.centerXAnchor),
             heroLogoView.topAnchor.constraint(equalTo: heroCol.topAnchor, constant: 4),
             heroLogoView.widthAnchor.constraint(equalTo: heroCol.widthAnchor, multiplier: 0.92),
-            heroLogoView.heightAnchor.constraint(equalTo: gamesPage.heightAnchor, multiplier: 0.50),
+            heroLogoView.heightAnchor.constraint(equalTo: gamesPage.heightAnchor, multiplier: 0.48),
 
             playButton.topAnchor.constraint(equalTo: heroLogoView.bottomAnchor, constant: 10),
             playButton.leadingAnchor.constraint(equalTo: heroCol.leadingAnchor, constant: 4),
@@ -703,9 +694,8 @@ final class HomeView: UIView {
                 assetGTAVI: item.assetVI,
                 paletteIndex: i
             )
-            // Responsive card widths: fits 24 FPS + wide 30 FPS + peek of 60 FPS on iPhone 7 (667pt) and Pro Max (932pt)
-            let w = card.widthAnchor.constraint(equalTo: perfScrollView.frameLayoutGuide.widthAnchor, multiplier: item.wide ? 0.45 : 0.30)
-            let wMin = card.widthAnchor.constraint(greaterThanOrEqualToConstant: item.wide ? 175 : 118)
+            let w = card.widthAnchor.constraint(equalTo: perfScrollView.frameLayoutGuide.widthAnchor, multiplier: item.wide ? 0.44 : 0.29)
+            let wMin = card.widthAnchor.constraint(greaterThanOrEqualToConstant: item.wide ? 170 : 114)
             NSLayoutConstraint.activate([w, wMin])
 
             card.addAction(UIAction { [weak self] _ in
@@ -929,6 +919,8 @@ final class HomeView: UIView {
         title.font = Theme.display(17, .bold)
         title.textColor = .white
         title.textAlignment = .center
+        title.adjustsFontSizeToFitWidth = true
+        title.minimumScaleFactor = 0.75
         title.translatesAutoresizingMaskIntoConstraints = false
         storeOverlay.addSubview(title)
 
@@ -950,7 +942,7 @@ final class HomeView: UIView {
 
         let cardsRow = UIStackView()
         cardsRow.axis = .horizontal
-        cardsRow.spacing = 14
+        cardsRow.spacing = 12
         cardsRow.distribution = .fillEqually
         cardsRow.semanticContentAttribute = .forceLeftToRight
         cardsRow.translatesAutoresizingMaskIntoConstraints = false
@@ -992,14 +984,15 @@ final class HomeView: UIView {
 
             title.topAnchor.constraint(equalTo: guide.topAnchor, constant: 12),
             title.centerXAnchor.constraint(equalTo: storeOverlay.centerXAnchor),
+            title.leadingAnchor.constraint(greaterThanOrEqualTo: storeOverlay.leadingAnchor, constant: 12),
 
             closeBtn.centerYAnchor.constraint(equalTo: title.centerYAnchor),
             closeBtn.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -14),
 
             cardsRow.centerXAnchor.constraint(equalTo: storeOverlay.centerXAnchor),
-            cardsRow.centerYAnchor.constraint(equalTo: storeOverlay.centerYAnchor, constant: -12),
-            cardsRow.widthAnchor.constraint(equalTo: storeOverlay.widthAnchor, multiplier: 0.74),
-            cardsRow.heightAnchor.constraint(equalTo: storeOverlay.heightAnchor, multiplier: 0.50),
+            cardsRow.centerYAnchor.constraint(equalTo: storeOverlay.centerYAnchor, constant: -10),
+            cardsRow.widthAnchor.constraint(equalTo: storeOverlay.widthAnchor, multiplier: 0.78),
+            cardsRow.heightAnchor.constraint(equalTo: storeOverlay.heightAnchor, multiplier: 0.48),
 
             followBtn.topAnchor.constraint(equalTo: cardsRow.bottomAnchor, constant: 12),
             followBtn.centerXAnchor.constraint(equalTo: storeOverlay.centerXAnchor),
@@ -1711,7 +1704,7 @@ private final class GameLogoBadgeView: UIView {
         gtaStackLabel.attributedText = gtaAttr
 
         switch index {
-        case 0: // GTA V
+        case 0:
             bgRomanLabel.isHidden = true
             badgePill.isHidden = false
             badgePill.text = "  FIVE  "
@@ -1721,7 +1714,7 @@ private final class GameLogoBadgeView: UIView {
             badgePill.layer.cornerRadius = 5
             badgePill.layer.borderWidth = 2
             badgePill.layer.borderColor = UIColor.white.cgColor
-        case 1: // GTA Online
+        case 1:
             bgRomanLabel.isHidden = true
             badgePill.isHidden = false
             badgePill.text = "  ONLINE  "
@@ -1731,7 +1724,7 @@ private final class GameLogoBadgeView: UIView {
             badgePill.layer.cornerRadius = 5
             badgePill.layer.borderWidth = 2
             badgePill.layer.borderColor = UIColor.black.cgColor
-        default: // GTA VI
+        default:
             bgRomanLabel.isHidden = false
             badgePill.isHidden = true
             bgRomanLabel.attributedText = NSAttributedString(string: "VI", attributes: [
@@ -1786,7 +1779,6 @@ private final class LauncherPerfCard: UIControl {
         bottomShade.locations = [0.35, 1.0]
         layer.addSublayer(bottomShade)
 
-        // Active badge (top-left)
         activeBadge.text = "  نشط  "
         activeBadge.font = Theme.body(10.5, .bold)
         activeBadge.layer.cornerRadius = 2
@@ -1795,7 +1787,6 @@ private final class LauncherPerfCard: UIControl {
         activeBadge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(activeBadge)
 
-        // Recommended badge (top-right)
         recBadge.text = "  موصى به  "
         recBadge.font = Theme.body(10.5, .bold)
         recBadge.textColor = .black
@@ -1806,7 +1797,6 @@ private final class LauncherPerfCard: UIControl {
         recBadge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(recBadge)
 
-        // Big FPS / YOUR SETTINGS typography (strictly LTR so "24 FPS" never flips to "FPS 24")
         let isCustom = (bigText == "YOUR")
         bigLabel.text = bigText
         bigLabel.font = isCustom ? Theme.display(23, .heavy) : .systemFont(ofSize: 42, weight: .light)
@@ -1831,7 +1821,6 @@ private final class LauncherPerfCard: UIControl {
         metricStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(metricStack)
 
-        // Bottom black caption bar
         captionBar.backgroundColor = UIColor.black.withAlphaComponent(0.88)
         captionBar.isUserInteractionEnabled = false
         captionBar.translatesAutoresizingMaskIntoConstraints = false
