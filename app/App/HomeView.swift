@@ -1,5 +1,8 @@
 import UIKit
 
+/// Rockstar Games Launcher / Rom.dom styled start screen:
+/// - Matches the layout and visual cards from the reference screenshots
+/// - Safe layout supporting iPhone (iPhone 8 to latest) and iPad (9th gen to latest)
 final class HomeView: UIView {
     enum FilesState { case ready, attention, problem, busy }
 
@@ -75,6 +78,7 @@ final class HomeView: UIView {
     private var perfArtViews: [UIImageView] = []
     private var perfActiveTags: [UILabel] = []
     private var selectedPerfIndex = 1
+    private var didResetScrollOnce = false
 
     private let onlinePanel = UIView()
     private var onlineCards: [UIControl] = []
@@ -110,6 +114,14 @@ final class HomeView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !didResetScrollOnce, perfScroll.bounds.width > 0 {
+            didResetScrollOnce = true
+            perfScroll.setContentOffset(.zero, animated: false)
+        }
+    }
+
     private func setupSidebar() {
         sidebarAnchor.isUserInteractionEnabled = false
         sidebarAnchor.translatesAutoresizingMaskIntoConstraints = false
@@ -120,13 +132,13 @@ final class HomeView: UIView {
         addSubview(sidebar)
 
         let guide = safeAreaLayoutGuide
-        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 66)
+        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 72)
 
         NSLayoutConstraint.activate([
             sidebarAnchor.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebarAnchor.topAnchor.constraint(equalTo: topAnchor),
             sidebarAnchor.bottomAnchor.constraint(equalTo: bottomAnchor),
-            sidebarAnchor.widthAnchor.constraint(equalToConstant: 66),
+            sidebarAnchor.widthAnchor.constraint(equalToConstant: 72),
 
             sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.topAnchor.constraint(equalTo: topAnchor),
@@ -166,8 +178,9 @@ final class HomeView: UIView {
             cfg.cornerStyle = .medium
             let btn = UIButton(configuration: cfg)
             btn.titleLabel?.numberOfLines = 1
+            btn.titleLabel?.lineBreakMode = .byClipping
             btn.titleLabel?.adjustsFontSizeToFitWidth = true
-            btn.titleLabel?.minimumScaleFactor = 0.7
+            btn.titleLabel?.minimumScaleFactor = 0.65
             btn.heightAnchor.constraint(equalToConstant: 36).isActive = true
             btn.addAction(UIAction { [weak self] _ in
                 guard let self else { return }
@@ -200,7 +213,7 @@ final class HomeView: UIView {
 
         NSLayoutConstraint.activate([
             rBadge.topAnchor.constraint(equalTo: guide.topAnchor, constant: 10),
-            rBadge.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 16),
+            rBadge.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 19),
             rBadge.widthAnchor.constraint(equalToConstant: 34),
             rBadge.heightAnchor.constraint(equalToConstant: 34),
 
@@ -209,7 +222,7 @@ final class HomeView: UIView {
             stack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -6),
 
             toggleBtn.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -10),
-            toggleBtn.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 17),
+            toggleBtn.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 20),
             toggleBtn.widthAnchor.constraint(equalToConstant: 32),
             toggleBtn.heightAnchor.constraint(equalToConstant: 32),
 
@@ -220,7 +233,7 @@ final class HomeView: UIView {
 
     private func toggleSidebar() {
         sidebarExpanded.toggle()
-        sidebarWidth.constant = sidebarExpanded ? 185 : 66
+        sidebarWidth.constant = sidebarExpanded ? 195 : 72
         brandLabel.isHidden = !sidebarExpanded
         let titles = ["جراند ثفت أوتو 5", "جراند ثفت أوتو أونلاين", "جراند ثفت أوتو 6", Self.brandName]
         let shorts = ["GTA V", "ONLINE", "GTA VI", "Rom"]
@@ -257,18 +270,21 @@ final class HomeView: UIView {
             heroBadgeLabel.text = "FIVE · \(Self.brandName)"
             heroBadgeLabel.textColor = Self.gold
             heroArtImage.image = UIImage(named: "CardGTAV_30") ?? UIImage(named: "StartBackground")
+            topAvatar.image = UIImage(named: "CardGTAV_30") ?? UIImage(named: "StartBackground")
             if notify { onMode?(0) }
         case 1:
             heroTitleLabel.text = "GRAND THEFT AUTO ONLINE"
             heroBadgeLabel.text = "ONLINE · \(Self.brandName)"
             heroBadgeLabel.textColor = UIColor(red: 0.92, green: 0.22, blue: 0.24, alpha: 1)
             heroArtImage.image = UIImage(named: "OnlineCard_FreeRoam") ?? UIImage(named: "StartBackground")
+            topAvatar.image = UIImage(named: "OnlineCard_FreeRoam") ?? UIImage(named: "StartBackground")
             if notify { onMap?(0); onMode?(1) }
         default:
             heroTitleLabel.text = "GRAND THEFT AUTO VI"
             heroBadgeLabel.text = "VI · \(Self.brandName)"
             heroBadgeLabel.textColor = Self.pink
             heroArtImage.image = UIImage(named: "CardGTAVI_30") ?? UIImage(named: "StartBackground")
+            topAvatar.image = UIImage(named: "CardGTAVI_30") ?? UIImage(named: "StartBackground")
             if notify { onMode?(1); if testMapAvailable { onMap?(1) } }
         }
 
@@ -339,7 +355,6 @@ final class HomeView: UIView {
             tabsStack.addArrangedSubview(btn)
         }
 
-        topAvatar.image = UIImage(named: "CardGTAV_30") ?? UIImage(named: "StartBackground")
         topAvatar.contentMode = .scaleAspectFill
         topAvatar.layer.cornerRadius = 15
         topAvatar.clipsToBounds = true
@@ -456,11 +471,13 @@ final class HomeView: UIView {
         leftCol.addSubview(controllerLabel)
 
         perfScroll.showsHorizontalScrollIndicator = false
+        perfScroll.semanticContentAttribute = .forceLeftToRight
         perfScroll.translatesAutoresizingMaskIntoConstraints = false
         gamesPage.addSubview(perfScroll)
 
         perfStack.axis = .horizontal
         perfStack.spacing = 10
+        perfStack.semanticContentAttribute = .forceLeftToRight
         perfStack.translatesAutoresizingMaskIntoConstraints = false
         perfScroll.addSubview(perfStack)
 
@@ -523,6 +540,7 @@ final class HomeView: UIView {
 
             let fpsLbl = UILabel()
             fpsLbl.text = item.fps
+            fpsLbl.semanticContentAttribute = .forceLeftToRight
             fpsLbl.font = Theme.display(20, .black)
             fpsLbl.textColor = .white
             fpsLbl.adjustsFontSizeToFitWidth = true
